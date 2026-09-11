@@ -331,6 +331,11 @@ html.is-standalone .tab-bar::after {
 /* ※地図とタブバーの間の隙間を緑色で埋める対応は、Google著作権表示が
    隠れる原因になったため撤去済み（今後は#map側の余白調整のみで対応）。 */
 .tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   text-align: center;
   font-size: 13px;
   color: white;
@@ -875,10 +880,16 @@ html.is-standalone .bottom-sheet {
 
 /* 下タブのアイコン（絵文字だった⚽🏪📋⭐の置き換え） */
 .tab-icon {
-  display: block;
   width: 20px;
   height: 20px;
-  margin: 0 auto 2px;
+  flex: none;
+  margin-bottom: 3px;
+}
+
+/* 下タブのラベル文字。フォントの行間メトリクスに幅を持たせず、
+   アイコンとの間隔を安定させる */
+.tab-label {
+  line-height: 1;
 }
 
 /* ローディング画面のサッカーボール（旧・絵文字⚽の置き換え） */
