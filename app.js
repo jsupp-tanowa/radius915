@@ -18,6 +18,13 @@ let map;
 let userLocation  = null;
 let currentMarker = null;
 
+/* ①絵文字置き換え：Featherアイコン風アウトラインSVG(index.html側のスプライトを参照)を
+   インラインで生成するヘルパー。stroke="currentColor" のため呼び出し元の文字色をそのまま継承する。 */
+function iconSvg(name, extraClass) {
+  const cls = extraClass ? `icon-inline ${extraClass}` : "icon-inline";
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-${name}"></use></svg>`;
+}
+
 /* ── 外部リンク（Googleマップ）遷移 ──
    iOSでホーム画面に追加して起動している場合（スタンドアロンモード）は、
    window.open() で新しいウィンドウを作ると、Googleマップアプリへ
@@ -204,7 +211,8 @@ window.initMap = function () {
   function updateSaveBtnDisplay() {
     if (!currentDestination) return;
     const saved = isSaved(currentDestination.type, currentDestination.placeid);
-    saveToggleBtn.textContent = saved ? "★ 保存済み" : "☆ 保存";
+    saveToggleBtn.querySelector(".save-toggle-label").textContent = saved ? "保存済み" : "保存";
+    saveToggleBtn.querySelector(".save-star-icon").classList.toggle("icon-star-filled", saved);
     saveToggleBtn.classList.toggle("saved", saved);
   }
 
@@ -422,13 +430,13 @@ window.initMap = function () {
       // ③ サッカー熱狂度（supportLevel 0〜5）を炎アイコンで表現
       const level = Math.min(Math.max(Number(shop.supportLevel) || 0, 0), 5);
       const flameLine = (isSupporter && level > 0)
-        ? `サッカー熱狂度: ${"🔥".repeat(level)}<br>` : "";
+        ? `サッカー熱狂度: ${iconSvg("flame").repeat(level)}<br>` : "";
 
       // ③ 訪問済み・試合放映バッジ
       // ① supportLevel=0（非サポーター店舗）では「訪問済み」表示は不要
       const badges = [];
-      if (isSupporter && shop.visited) badges.push("✅ 訪問済み");
-      if (shop.screen) badges.push("📺 試合放映あり");
+      if (isSupporter && shop.visited) badges.push(`${iconSvg("check")} 訪問済み`);
+      if (shop.screen) badges.push(`${iconSvg("tv")} 試合放映あり`);
       const badgeLine = badges.length ? `${badges.join("　")}<br>` : "";
 
       const noteLine = (isSupporter && shop.note) ? `${shop.note}` : "";
@@ -655,7 +663,7 @@ window.initMap = function () {
       const row = document.createElement("div");
       row.className = "saved-item";
 
-      const icon = item.type === "stadiums" ? "⚽" : "🏪";
+      const icon = item.type === "stadiums" ? iconSvg("ball") : iconSvg("restaurant");
 
       row.innerHTML = `
         <div class="saved-item-main">
@@ -758,7 +766,7 @@ window.initMap = function () {
       const row = document.createElement("div");
       row.className = "saved-item";
 
-      const icon = item.type === "stadiums" ? "⚽" : "🏪";
+      const icon = item.type === "stadiums" ? iconSvg("ball") : iconSvg("restaurant");
 
       row.innerHTML = `
         <div class="saved-item-main">

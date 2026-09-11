@@ -1,11 +1,31 @@
-version: 1.2.5
-release_date: 2026-09-05
-summary: ズームボタン修正
+version: 1.3.0
+release_date: 2026-09-11
+summary: アイコンのSVG化
 
 changes:
-  - #mapはposition: relativeではないため、.zoom-control-areaの絶対配置はページ全体（body）基準になり、ヘッダー直下に表示されていました。
+  - <body>直後にFeatherアイコン風のSVGスプライト（icon-ball, icon-store, icon-restaurant, icon-list, icon-star, icon-mappin, icon-navigation, icon-refresh, icon-flame, icon-check, icon-tv）を非表示defsとして追加。すべてstroke="currentColor"のアウトライン設計で、配置先のCSS color（ブランドカラー）をそのまま継承します。
 
-#mapのmargin-top（ヘッダー＋検索バー分の112px + env(safe-area-inset-top)）と同じ値をtopに加算し、そこからさらに10px内側に入れることで、見た目上は地図の右上角に来るよう修正しました。.button-area（現在地・再読み込みボタン）はbottom基準のため元々この問題は起きていません。
+index.htmlで置き換え済み
+
+ローディング画面のサッカーボール（⚽）
+下タブ4つ（⚽🏪📋⭐）
+店舗カードの出発地／ここに行く／お気に入り／周辺の店舗を表示ボタン
+リスト表示・保存リストのタイトルアイコン
+ヘルプ本文：見出し5箇所（⚽）、③⑥の機能一覧、⑤の🔄、⑦の🔥（1〜5個）✅📺
+
+app.js
+
+iconSvg(name, extraClass)ヘルパーを追加
+保存リスト/リスト表示の店舗アイコンを「⚽→icon-ball」「🏪→icon-restaurant（飲食店イメージ）」に変更
+サッカー熱狂度（🔥）・訪問済み（✅）・試合放映（📺）バッジをSVG化
+お気に入りボタンを.save-toggle-label（テキスト）＋.save-star-icon（アイコン）構造に変更し、保存状態で.icon-star-filledをトグルして塗り/アウトラインを切替
+
+style.css
+
+.icon-inline（文中インライン用）、.tab-icon（下タブ用）、.loading-ball（SVG版に置き換え、旧emoji版ルールは削除）、.icon-star-filled（星の塗り切替）を追加
+.show-area-btnをflexレイアウトに変更（アイコン＋テキスト対応）
+.saved-item-iconをSVGサイズ・ブランドカラー(
+#1b5e20)に対応
 
 notes:
   - 本番環境（Firebase Hosting）へのデプロイ

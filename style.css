@@ -436,7 +436,10 @@ html.is-standalone .bottom-sheet {
 
 /* 周辺表示ボタン */
 .show-area-btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 65%;
   margin: 10px auto 0;
   padding: 8px 12px;
@@ -695,7 +698,18 @@ html.is-standalone .bottom-sheet {
 }
 
 .saved-item-icon {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: #1b5e20;
+  flex: none;
+}
+
+.saved-item-icon .icon-inline {
+  width: 100%;
+  height: 100%;
 }
 
 .saved-item-text {
@@ -815,16 +829,6 @@ html.is-standalone .bottom-sheet {
   height: 110px;
 }
 
-.loading-ball {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translateX(-50%);
-  font-size: 48px;
-  line-height: 1;
-  animation: loading-ball-bounce 1s cubic-bezier(.5,0,.7,.4) infinite;
-}
-
 .loading-shadow {
   position: absolute;
   left: 50%;
@@ -855,4 +859,41 @@ html.is-standalone .bottom-sheet {
   font-weight: 700;
   color: #1b5e20;
   letter-spacing: .5px;
+}
+
+/* ①絵文字→Featherアイコン風SVGへの置き換えに伴う共通スタイル。
+   stroke="currentColor" のため、配置先の color(ブランドカラー)を
+   そのまま継承する（origin/go-here/save各ボタンの配色もそのまま反映される）。 */
+
+/* 文中・ボタンラベル内などにインラインで置く小アイコン（本文の絵文字と同等サイズ） */
+.icon-inline {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  flex: none;
+}
+
+/* 下タブのアイコン（絵文字だった⚽🏪📋⭐の置き換え） */
+.tab-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0 auto 2px;
+}
+
+/* ローディング画面のサッカーボール（旧・絵文字⚽の置き換え） */
+.loading-ball {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 48px;
+  height: 48px;
+  transform: translateX(-50%);
+  color: #1b5e20;
+  animation: loading-ball-bounce 1s cubic-bezier(.5,0,.7,.4) infinite;
+}
+
+/* お気に入りの星アイコン：未保存はアウトライン、保存済みは塗りに切替 */
+.icon-star-filled {
+  fill: currentColor;
 }
