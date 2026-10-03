@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>店舗管理画面｜おみせまっぷ</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+  <!-- ログイン画面 -->
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-form">
+      <h1>店舗管理画面</h1>
+      <label>
+        ユーザー名
+        <input type="text" id="loginUsername" autocomplete="username" required>
+      </label>
+      <label>
+        パスワード
+        <input type="password" id="loginPassword" autocomplete="current-password" required>
+      </label>
+      <div id="loginError" class="error-text" style="display:none;"></div>
+      <button type="submit">ログイン</button>
+    </form>
+  </div>
+
+  <!-- 管理画面本体 -->
+  <div id="adminScreen" class="admin-screen" style="display:none;">
+    <header class="admin-header">
+      <h1>店舗管理画面</h1>
+      <div class="header-actions">
+        <span id="loggedInAs" class="logged-in-as"></span>
+        <button id="logoutBtn" class="secondary-btn">ログアウト</button>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <section class="list-section">
+        <div class="list-section-header">
+          <h2>店舗一覧</h2>
+          <button id="newShopBtn" class="primary-btn">＋ 新規店舗</button>
+        </div>
+        <div class="list-filter-row">
+          <button type="button" class="filter-btn active" id="filterAllBtn" data-filter="all">すべて</button>
+          <button type="button" class="filter-btn" id="filterUnpublishedBtn" data-filter="unpublished">非公開のみ（申請・確認待ち含む）</button>
+        </div>
+        <table class="shop-table">
+          <thead>
+            <tr>
+              <th>店名</th>
+              <th>カテゴリ</th>
+              <th>都道府県</th>
+              <th>熱狂度</th>
+              <th>公開</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="shopTableBody"></tbody>
+        </table>
+        <div id="listEmpty" class="list-empty" style="display:none;">店舗が登録されていません</div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 店舗編集モーダル -->
+  <div id="shopModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <h2 id="modalTitle">店舗を編集</h2>
+      <form id="shopForm">
+        <input type="hidden" id="shopId">
+        <div class="maps-import-row">
+          <label>
+            GoogleマップのURLを貼り付け
+            <input type="url" id="mapsUrlInput" placeholder="https://maps.app.goo.gl/...">
+          </label>
+          <button type="button" id="mapsImportBtn" class="secondary-btn">読み込む</button>
+        </div>
+        <div id="mapsImportError" class="error-text" style="display:none;"></div>
+        <label>
+          店名 <span class="required">*</span>
+          <input type="text" id="fieldName" required>
+        </label>
+        <div class="field-row">
+          <label>
+            緯度(lat) <span class="required">*</span>
+            <input type="number" step="any" id="fieldLat" required>
+          </label>
+          <label>
+            経度(lng) <span class="required">*</span>
+            <input type="number" step="any" id="fieldLng" required>
+          </label>
+        </div>
+        <label>
+          Google Place ID <span class="required">*</span>
+          <input type="text" id="fieldPlaceId" required>
+          <span class="field-hint">この値がデータベース上の一意のIDになります。登録後は変更できません（変更したい場合は削除して登録し直してください）</span>
+        </label>
+        <div class="field-row">
+          <label>
+            カテゴリ
+            <input type="text" id="fieldCategory" placeholder="例: 居酒屋、カフェ">
+          </label>
+          <label>
+            都道府県
+            <input type="text" id="fieldPrefecture">
+          </label>
+        </div>
+        <label>
+          推しクラブ（サポーター歓迎店の場合）
+          <input type="text" id="fieldTeam" placeholder="例: ヴィッセル神戸">
+        </label>
+        <label>
+          サッカー熱狂度（0〜5）
+          <input type="number" id="fieldSupportLevel" min="0" max="5" step="1" value="0">
+        </label>
+        <label>
+          備考
+          <textarea id="fieldNote" rows="3"></textarea>
+        </label>
+        <label>
+          画像URL（カンマ区切りで複数指定可）
+          <textarea id="fieldImages" rows="2" placeholder="https://example.com/a.jpg, https://example.com/b.jpg"></textarea>
+        </label>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="fieldVisited">
+            訪問済み
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="fieldScreen">
+            試合放映あり
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="fieldVerified" checked>
+            確認済み店舗（サポーター歓迎店として掲載）
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="fieldPublished">
+            公開する
+          </label>
+        </div>
+        <div id="formError" class="error-text" style="display:none;"></div>
+        <div class="modal-actions">
+          <button type="button" id="cancelModalBtn" class="secondary-btn">キャンセル</button>
+          <button type="submit" class="primary-btn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
