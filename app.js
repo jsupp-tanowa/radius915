@@ -137,7 +137,14 @@ function moveToCurrentLocation() {
       // ①現在地取得時に出発地を自動セット
       setOrigin({ lat: p.lat, lng: p.lng, name: "現在地" });
     },
-    () => alert("位置情報の取得に失敗しました")
+    err => {
+      if (err.code === err.PERMISSION_DENIED) {
+        alert("位置情報の利用が許可されていません。\nブラウザ（端末）の設定で許可すると利用できます。");
+      } else {
+        alert("位置情報を取得できませんでした。電波の良い場所でもう一度お試しください。");
+      }
+    },
+    { timeout: 10000, maximumAge: 60000 }
   );
 }
 
@@ -984,27 +991,6 @@ window.initMap = function () {
 
   /* ── カード閉じる ── */
   document.getElementById("closeCardBtn").addEventListener("click", closeCard);
-
-  /* ── 初期位置情報取得 ── */
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        userLocation = p;
-        map.setCenter(p);
-        map.setZoom(11);
-        if (currentMarker) currentMarker.setMap(null);
-        currentMarker = new google.maps.Marker({
-          position: p, map, title: "現在地",
-          icon: "http://maps.google.com/mapfiles/ms/micons/yellow-dot.png"
-        });
-        // ①現在地取得時に出発地を自動セット
-        setOrigin({ lat: p.lat, lng: p.lng, name: "現在地" });
-      },
-      () => {},
-      { timeout: 8000 }
-    );
-  }
 
   /* ── 初回ロード ── */
   loadShops();
