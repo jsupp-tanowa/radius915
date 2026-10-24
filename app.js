@@ -49,13 +49,18 @@ function toKatakana(str) {
   return str.replace(/[\u3041-\u3096]/g, ch =>
     String.fromCharCode(ch.charCodeAt(0) + 0x60));
 }
+/* 検索用の正規化：全角/半角(NFKC)・大文字小文字・空白の揺れを吸収する */
+function normalizeText(str) {
+  return String(str).normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
 function normalizeKeyword(kw) {
-  const lower = kw.toLowerCase();
-  return [lower, toHiragana(lower), toKatakana(lower)];
+  const base = normalizeText(kw);
+  return [base, toHiragana(base), toKatakana(base)];
 }
 function matchField(field, variants) {
   if (!field) return false;
-  return variants.some(v => field.toLowerCase().includes(v));
+  const target = normalizeText(field);
+  return variants.some(v => v && target.includes(v));
 }
 
 /* ── 2点間の距離（km）を計算（haversine公式） ──
@@ -289,29 +294,37 @@ window.initMap = function () {
   /* ── 検索バークリア ── */
   const searchInput    = document.getElementById("searchInput");
   const searchClearBtn = document.getElementById("searchClearBtn");
+  let searchDebounceTimer = null; // 入力デバウンス用
+  let isComposing = false;        // IME変換中フラグ
 
   function updateClearBtn() {
     searchClearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
   }
   searchClearBtn.addEventListener("click", clearSearch);
   function clearSearch() {
+    clearTimeout(searchDebounceTimer);
     searchInput.value = "";
     updateClearBtn();
     refreshShopMarkers();
     refreshStadiumMarkers();
   }
 
-  /* ── fitBounds（stadium検索用） ── */
-  function fitToMarkers(markers) {
-    if (markers.length === 0) return;
-    if (markers.length === 1) {
-      map.setCenter(markers[0].getPosition());
+  /* ── fitBounds（検索結果用） ──
+     positions: google.maps.LatLng の配列 / padding: 画面端の余白(px) */
+  function fitToPositions(positions, padding) {
+    if (positions.length === 0) return;
+    if (positions.length === 1) {
+      map.setCenter(positions[0]);
       map.setZoom(13);
       return;
     }
     const bounds = new google.maps.LatLngBounds();
-    markers.forEach(m => bounds.extend(m.getPosition()));
-    map.fitBounds(bounds);
+    positions.forEach(p => bounds.extend(p));
+    if (padding) {
+      map.fitBounds(bounds, padding);
+    } else {
+      map.fitBounds(bounds);
+    }
     google.maps.event.addListenerOnce(map, "bounds_changed", () => {
       if (map.getZoom() > 14) map.setZoom(14);
     });
@@ -496,7 +509,7 @@ window.initMap = function () {
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
 
-    // ① 検索ボックスは shops.category / shops.team も検索対象とする
+    // ① 検索ボックスは shops.name / shops.category / shops.team を検索対象とする
     //   （ピンの絞り込みは検索キーワード・タブのみで行う）
     allShops.filter(shop => {
       if (!shop.published) return false;
@@ -504,6 +517,7 @@ window.initMap = function () {
       if (isEffectiveGeneral(shop) && !showGeneral) return false;
       if (variants.length) {
         return (
+          matchField(shop.name,     variants) ||
           matchField(shop.category, variants) ||
           matchField(shop.team,     variants)
         );
@@ -512,7 +526,8 @@ window.initMap = function () {
     }).forEach(shop => createShopMarker(shop));
   }
 
-  /* ── スタジアムマーカー再描画 ── */
+  /* ── スタジアムマーカー再描画 ──
+     ※検索ヒット時のズームは fitToSearchResults に集約（店舗ヒットとの同時ヒットを考慮するため） */
   function refreshStadiumMarkers() {
     stadiumMarkers.forEach(m => m.setMap(null));
     stadiumMarkers = [];
@@ -522,47 +537,19 @@ window.initMap = function () {
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
 
-    if (variants.length) {
-      console.log("[検索]", variants, "/ スタジアム総数:", allStadiums.length);
-    }
-
-    const filtered = allStadiums.filter(s => {
+    allStadiums.filter(s => {
       if (variants.length) {
         const teamsStr = Array.isArray(s.teams) ? s.teams.join(" ") : (s.teams || "");
-        const hit = (
+        return (
           matchField(s.name,       variants) ||
           matchField(s.subname,    variants) ||
           matchField(s.prefecture, variants) ||
           matchField(s.city,       variants) ||
           matchField(teamsStr,     variants)
         );
-        if (hit) console.log("[ヒット]", s.name, s.prefecture, s.teams);
-        return hit;
       }
       return true;
-    });
-
-    console.log("[filtered]", filtered.length, "件");
-
-    filtered.forEach(s => createStadiumMarker(s));
-
-    // ④ スタジアム優先ズーム：
-    //    キーワードあり かつ スタジアムがヒット の場合にfitBoundsする。
-    //    ただし「出発地に設定したスタジアム自身だけ」がヒットした場合は、
-    //    無駄なカメラ移動を避けるためスキップする
-    //    （出発地がスタジアムというだけで以降の検索が全て無視される
-    //      不具合があったため、判定をplaceid単位に限定した）
-    if (variants.length && stadiumMarkers.length > 0) {
-      const isOnlyOriginStadiumItself =
-        originData &&
-        originData.type === "stadiums" &&
-        filtered.length === 1 &&
-        filtered[0].placeid === originData.placeid;
-
-      if (!isOnlyOriginStadiumItself) {
-        fitToMarkers(stadiumMarkers);
-      }
-    }
+    }).forEach(s => createStadiumMarker(s));
   }
 
   function refreshAllMarkers() {
@@ -570,17 +557,29 @@ window.initMap = function () {
     refreshStadiumMarkers();
   }
 
-  /* ── ② 検索後ズーム ── */
+  /* ── ② 検索後ズーム ──
+     スタジアム・店舗のヒット状況に応じて表示範囲を決める。
+     ・スタジアムのみ：ヒットしたスタジアム全体
+     ・店舗のみ    ：出発地/現在地がある場合は「基準点＋最寄りの1店舗」、なければヒット全店舗
+     ・両方ヒット  ：スタジアム全件＋店舗（基準点がある場合は最寄り1店舗）を含む範囲
+     これにより店名検索時にスタジアム側へ引っ張られず、全国チェーン店でも広域に飛びにくい。 */
   function fitToSearchResults() {
     const keyword = searchInput.value.trim();
     if (!keyword) return;
 
-    // スタジアムがヒットしている場合はrefreshStadiumMarkers内のfitToMarkersに任せる
-    if (stadiumMarkers.length > 0) return;
+    // 出発地に設定したスタジアム自身だけがヒットした場合は、そのスタジアムへの無駄な移動を避ける
+    const isOnlyOriginStadiumItself =
+      originData &&
+      originData.type === "stadiums" &&
+      stadiumMarkers.length === 1 &&
+      stadiumMarkers[0].stadiumData.placeid === originData.placeid;
 
-    // スタジアム未ヒット・店舗のみの場合：出発地/現在地→最近傍ピンにfit
-    const shopPositions = shopMarkers.map(m => m.getPosition());
-    if (shopPositions.length === 0) return;
+    const stadiumPositions = isOnlyOriginStadiumItself
+      ? []
+      : stadiumMarkers.map(m => m.getPosition());
+    let shopPositions = shopMarkers.map(m => m.getPosition());
+
+    if (stadiumPositions.length === 0 && shopPositions.length === 0) return;
 
     const base = originData
       ? new google.maps.LatLng(originData.lat, originData.lng)
@@ -588,32 +587,30 @@ window.initMap = function () {
         ? new google.maps.LatLng(userLocation.lat, userLocation.lng)
         : null;
 
-    if (!base) {
-      const bounds = new google.maps.LatLngBounds();
-      shopPositions.forEach(p => bounds.extend(p));
-      map.fitBounds(bounds);
-      google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-        if (map.getZoom() > 14) map.setZoom(14);
+    // 基準点がある場合、店舗は最寄りの1件に絞る
+    if (base && shopPositions.length > 0) {
+      let nearest = null;
+      let minDist = Infinity;
+      shopPositions.forEach(p => {
+        const d = google.maps.geometry
+          ? google.maps.geometry.spherical.computeDistanceBetween(base, p)
+          : Math.hypot(p.lat() - base.lat(), p.lng() - base.lng());
+        if (d < minDist) { minDist = d; nearest = p; }
       });
+      shopPositions = [nearest];
+    }
+
+    const points = [...stadiumPositions, ...shopPositions];
+
+    if (shopPositions.length === 0) {
+      // スタジアムのみ（従来どおり余白なし）
+      fitToPositions(points);
       return;
     }
 
-    let nearest = null;
-    let minDist = Infinity;
-    shopPositions.forEach(p => {
-      const d = google.maps.geometry
-        ? google.maps.geometry.spherical.computeDistanceBetween(base, p)
-        : Math.hypot(p.lat() - base.lat(), p.lng() - base.lng());
-      if (d < minDist) { minDist = d; nearest = p; }
-    });
-
-    const bounds = new google.maps.LatLngBounds();
-    bounds.extend(base);
-    bounds.extend(nearest);
-    map.fitBounds(bounds, { padding: 80 });
-    google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-      if (map.getZoom() > 14) map.setZoom(14);
-    });
+    // 店舗のみで基準点がある場合は、基準点も範囲に含める（従来仕様）
+    if (stadiumPositions.length === 0 && base) points.push(base);
+    fitToPositions(points, 80);
   }
 
   /* ── タブ：スタジアム ── */
@@ -819,14 +816,38 @@ window.initMap = function () {
     helpScreen.style.display = "none";
   });
 
-  /* ── 検索バー入力 ── */
+  /* ── 検索バー入力 ──
+     ・IME変換中（未確定文字）は検索しない
+     ・入力が止まって300ms後に再描画（1文字ごとの地図移動を防ぐ）
+     ・キーワードが空になった場合は即時反映 */
+  function runSearch() {
+    searchDebounceTimer = null;
+    refreshAllMarkers();
+    fitToSearchResults(); // ② 検索後ズーム
+  }
+  function scheduleSearch() {
+    clearTimeout(searchDebounceTimer);
+    if (!searchInput.value.trim()) {
+      runSearch();
+      return;
+    }
+    searchDebounceTimer = setTimeout(runSearch, 300);
+  }
+
+  searchInput.addEventListener("compositionstart", () => {
+    isComposing = true;
+  });
+  searchInput.addEventListener("compositionend", () => {
+    isComposing = false;
+    scheduleSearch();
+  });
   searchInput.addEventListener("input", () => {
     // ② カードを開いた状態から検索を始めた場合はカードを閉じる
     const card = document.getElementById("shopCard");
     if (card.style.display !== "none") closeCard();
     updateClearBtn();
-    refreshAllMarkers();
-    fitToSearchResults(); // ② 検索後ズーム
+    if (isComposing) return;
+    scheduleSearch();
   });
 
   /* ── データ読込（リトライ＋タイムアウト付き） ──
