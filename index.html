@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -28,10 +28,10 @@
   <meta name="apple-mobile-web-app-title" content="サポたのわ">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <meta name="description" content="サポたのわは、サッカー好きが集まる飲食店をはじめとした、おすすめ店舗を探せる地図アプリです。">
+  <meta name="description" content="サポたのわは、サッカー観戦の遠征先で食べる・飲むお店を探せる地図アプリです。サポーター歓迎店と、管理人が実際に訪問したおすすめのお店を掲載しています。">
 
   <meta property="og:title" content="サポたのわ">
-  <meta property="og:description" content="サッカー好きが集まる飲食店を探せる地図アプリ">
+  <meta property="og:description" content="遠征先で食べる・飲むお店を探せる地図。サポーター歓迎店と、管理人が実際に訪問したおすすめの店を掲載">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://supportanowa.web.app/">
   <meta property="og:image" content="https://supportanowa.web.app/ogp.jpg">
@@ -115,7 +115,11 @@
     <div class="loading-shadow"></div>
   </div>
   <div class="loading-text">店舗情報を読み込み中...</div>
+  <button id="loadingRetryBtn" class="loading-retry-btn" style="display:none;">再読み込み</button>
 </div>
+
+<!-- 短いお知らせ（読み込み失敗・ピンを開けない場合など） -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <header class="app-header">
   <div class="title-row">
@@ -129,7 +133,7 @@
     </button>
   </div>
   <div class="subtitle">
-    サッカー好きが集まるスポーツバーや飲食店・おすすめのお店を紹介
+    サポーター歓迎店と、管理人が実際に訪ねたおすすめの店を紹介
   </div>
 </header>
 
@@ -139,8 +143,9 @@
       <input
         id="searchInput"
         type="text"
+        aria-label="店名・スタジアム名・クラブ名・ジャンルで検索"
         placeholder="店名・スタジアム名・クラブ名・ジャンル検索">
-      <button id="searchClearBtn" class="search-clear-btn">×</button>
+      <button id="searchClearBtn" class="search-clear-btn" aria-label="検索をクリア">×</button>
     </div>
   </div>
 
@@ -156,7 +161,7 @@
         <path d="M3 21v-5h5"></path>
       </svg>
     </button>
-    <button onclick="moveToCurrentLocation()" class="location-btn">
+    <button onclick="moveToCurrentLocation()" class="location-btn" aria-label="現在地へ移動">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
         <path d="M12 4 L18.5 20 L12 16.3 L5.5 20 Z" fill="#4285F4"/>
       </svg>
@@ -176,7 +181,8 @@
   <!-- 店舗カード -->
   <div id="shopCard" class="bottom-sheet" style="display:none;">
     <div class="card-header">
-      <button id="closeCardBtn" class="close-btn card-close-btn">×</button>
+      <button id="closeCardBtn" class="close-btn card-close-btn" aria-label="閉じる">×</button>
+      <div id="shopTypeBadge" class="shop-type-badge" style="display:none;"></div>
       <div id="shopName" class="bottom-title">店名</div>
     </div>
     <div class="card-scroll-area">
@@ -220,7 +226,7 @@
   <div id="listScreen" class="saved-screen" style="display:none;">
     <div class="saved-header">
       <div class="saved-title"><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-list"></use></svg> リスト表示</div>
-      <button id="closeListBtn" class="close-btn">×</button>
+      <button id="closeListBtn" class="close-btn" aria-label="閉じる">×</button>
     </div>
     <div id="listViewList" class="saved-list"></div>
   </div>
@@ -229,7 +235,7 @@
   <div id="savedScreen" class="saved-screen" style="display:none;">
     <div class="saved-header">
       <div class="saved-title"><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-star"></use></svg> 保存リスト</div>
-      <button id="closeSavedBtn" class="close-btn">×</button>
+      <button id="closeSavedBtn" class="close-btn" aria-label="閉じる">×</button>
     </div>
     <div id="savedList" class="saved-list"></div>
   </div>
@@ -238,7 +244,7 @@
   <div id="helpScreen" class="saved-screen" style="display:none;">
     <div class="saved-header help-header">
       <div class="saved-title">お知らせ/使い方</div>
-      <button id="closeHelpBtn" class="close-btn">×</button>
+      <button id="closeHelpBtn" class="close-btn" aria-label="閉じる">×</button>
     </div>
     <div class="help-content">
       <section class="help-section">
@@ -254,7 +260,7 @@
       </section>
       <section class="help-section">
         <h3><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-ball"></use></svg> 一般店舗について</h3>
-        <p>一般店舗として掲載しているスポットは、管理人が日頃からGoogleマップでお気に入り登録している場所です。<br>
+        <p>一般店舗として掲載しているスポットも、管理人が実際に訪問し、日頃からGoogleマップでお気に入り登録している場所です。<br>
         世間的に評価の高い人気店だけでなく、雰囲気の良いお店、立ち寄りやすい食堂や居酒屋、有名チェーン店なども含まれています。<br>
         遠征や観戦の合間に「ちょっと寄ってみようかな」と思える場所を幅広く掲載しています。</p>
       </section>
@@ -319,7 +325,7 @@
           <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-flame"></use></svg><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-flame"></use></svg><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-flame"></use></svg><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-flame"></use></svg><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-flame"></use></svg>特定クラブの聖地・象徴的存在
         </p>
         <p style="margin-top:10px;">
-          <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-check"></use></svg> は店舗訪問確認済（原則全店舗対象）<br>
+          <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-check"></use></svg> は店舗訪問確認済み（掲載店はすべて管理人が訪問しています）<br>
           <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-tv"></use></svg> は試合放映あり<br>
           を表しています。
         </p>
@@ -344,7 +350,7 @@
   <script src="app.js"></script>
 
   <!-- Google Maps -->
-  <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCT8IjSyBtHPAGKe7U5RA9yzeRmXmOI844&callback=initMap"></script>
+  <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCT8IjSyBtHPAGKe7U5RA9yzeRmXmOI844&callback=initMap" onerror="showLoadError('地図の読み込みに失敗しました。通信環境をご確認のうえ、再読み込みしてください。', 'maps_script')"></script>
 
 </body>
 </html>
