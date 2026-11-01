@@ -12,7 +12,117 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 // ① Google Analytics（GA4）計測を有効化
-firebase.analytics();
+const analytics = firebase.analytics();
+
+/* ── GA4 カスタムイベント送信 ──
+   ・ローカル確認(localhost)では送信せずコンソールに出力し、本番の計測を汚さない
+   ・広告ブロッカー等で計測が使えなくても、アプリの動作に影響させない
+   ・文字列パラメータはGA4の上限(100文字)に切り詰める */
+function trackEvent(name, params) {
+  const safe = {};
+  Object.keys(params || {}).forEach(k => {
+    const v = params[k];
+    safe[k] = typeof v === "string" ? v.slice(0, 100) : v;
+  });
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+    console.debug("[GA4 event]", name, safe);
+    return;
+  }
+  try {
+    analytics.logEvent(name, safe);
+  } catch (e) { /* 計測の失敗はアプリの動作に影響させない */ }
+}
+
+/* ── HTML属性値用エスケープ（alt属性などに店名を入れるため） ── */
+function escapeAttr(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/* ── トースト（画面下部の短いお知らせ） ── */
+let toastTimer = null;
+function showToast(message, ms) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, ms || 4000);
+}
+function hideToast() {
+  const el = document.getElementById("toast");
+  if (el) el.classList.remove("show");
+}
+
+/* ── ローディング画面／読み込み失敗の案内 ──
+   Googleマップ自体の読み込み失敗（スクリプト不達・APIキー/リファラ拒否・通信不良）は
+   initMap が呼ばれないため、initMap の外で検知して案内する。 */
+const LOADING_DEFAULT_TEXT = "店舗情報を読み込み中...";
+
+function hideLoadingOverlay() {
+  const overlay = document.getElementById("loadingOverlay");
+  // エラー表示中は閉じない（案内を消さないため）
+  if (overlay && !overlay.classList.contains("is-error")) overlay.classList.add("hide");
+}
+
+function showLoadError(message, reason) {
+  const overlay = document.getElementById("loadingOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("hide");
+  overlay.classList.add("is-error");
+  const text = overlay.querySelector(".loading-text");
+  if (text) text.textContent = message;
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.style.display = "block";
+  trackEvent("load_error", { reason: reason || "unknown" });
+}
+
+function resetLoadingOverlay() {
+  const overlay = document.getElementById("loadingOverlay");
+  if (!overlay || !overlay.classList.contains("is-error")) return;
+  overlay.classList.remove("is-error");
+  const text = overlay.querySelector(".loading-text");
+  if (text) text.textContent = LOADING_DEFAULT_TEXT;
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.style.display = "none";
+}
+
+(function setupLoadErrorHandling() {
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.addEventListener("click", () => location.reload());
+
+  // APIキー／リファラ制限などでGoogleマップに拒否された場合にGoogle側から呼ばれる
+  window.gm_authFailure = function () {
+    showLoadError("地図を表示できませんでした。時間をおいて、もう一度お試しください。", "maps_auth");
+  };
+
+  // Googleマップ読み込みが一定時間たっても完了しない場合
+  setTimeout(() => {
+    if (!window.__mapInitialized) {
+      showLoadError("地図の読み込みに時間がかかっています。通信環境をご確認ください。", "maps_timeout");
+    }
+  }, 15000);
+})();
+
+/* ── 区分バッジ（店舗カード見出し上）──
+   サポーター歓迎店／一般店舗／スタジアムを、カードを開いた時点で判別できるようにする。 */
+function setTypeBadge(kind) {
+  const el = document.getElementById("shopTypeBadge");
+  if (!el) return;
+  const defs = {
+    supporter: { label: "サポーター歓迎店", cls: "type-supporter" },
+    general:   { label: "一般店舗",         cls: "type-general" },
+    stadium:   { label: "スタジアム",       cls: "type-stadium" }
+  };
+  const d = defs[kind];
+  if (!d) { el.style.display = "none"; return; }
+  el.className = "shop-type-badge " + d.cls;
+  el.innerHTML = `<span class="type-dot"></span>${d.label}`;
+  el.style.display = "inline-flex";
+}
 
 let map;
 let userLocation  = null;
@@ -132,6 +242,7 @@ function moveToCurrentLocation() {
     pos => {
       const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       userLocation = p;
+      trackEvent("locate", { result: "success" });
       map.setCenter(p);
       map.setZoom(11);
       if (currentMarker) currentMarker.setMap(null);
@@ -143,6 +254,7 @@ function moveToCurrentLocation() {
       setOrigin({ lat: p.lat, lng: p.lng, name: "現在地" });
     },
     err => {
+      trackEvent("locate", { result: err.code === err.PERMISSION_DENIED ? "denied" : "error" });
       if (err.code === err.PERMISSION_DENIED) {
         alert("位置情報の利用が許可されていません。\nブラウザ（端末）の設定で許可すると利用できます。");
       } else {
@@ -155,6 +267,9 @@ function moveToCurrentLocation() {
 
 /* 地図初期化 */
 window.initMap = function () {
+
+  window.__mapInitialized = true;
+  resetLoadingOverlay(); // 遅れて読み込めた場合は、読み込み失敗の案内を解除
 
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 34.7284, lng: 135.4814 },
@@ -230,8 +345,13 @@ window.initMap = function () {
 
   saveToggleBtn.addEventListener("click", () => {
     if (!currentDestination) return;
-    toggleSaved(currentDestination.type, currentDestination.placeid);
+    const nowSaved = toggleSaved(currentDestination.type, currentDestination.placeid);
     updateSaveBtnDisplay();
+    trackEvent("save_place", {
+      place_type: currentDestination.type,
+      place_id:   currentDestination.placeid,
+      saved:      nowSaved ? 1 : 0
+    });
   });
 
   /* ── カード ── */
@@ -286,6 +406,12 @@ window.initMap = function () {
       ? `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destName}&destination_place_id=${destPlaceId}&travelmode=transit`
       : `https://www.google.com/maps/dir/?api=1&destination=${destName}&destination_place_id=${destPlaceId}&travelmode=transit`;
 
+    trackEvent("route_click", {
+      place_type: currentDestination.type,
+      place_id:   currentDestination.placeid,
+      place_name: currentDestination.name,
+      has_origin: originData ? 1 : 0
+    });
     openExternalMapLink(url);
   }
 
@@ -303,6 +429,7 @@ window.initMap = function () {
   searchClearBtn.addEventListener("click", clearSearch);
   function clearSearch() {
     clearTimeout(searchDebounceTimer);
+    lastTrackedKeyword = "";
     searchInput.value = "";
     updateClearBtn();
     refreshShopMarkers();
@@ -341,6 +468,12 @@ window.initMap = function () {
 
     marker.addListener("click", () => {
       openCard();
+      setTypeBadge("stadium");
+      trackEvent("view_place", {
+        place_type: "stadium",
+        place_id:   stadium.placeid,
+        place_name: stadium.name
+      });
       const displayName = (stadium.subname && stadium.subname.trim())
         ? stadium.subname : stadium.name;
       document.getElementById("shopName").innerText = displayName;
@@ -356,12 +489,14 @@ window.initMap = function () {
       gallery.style.display = "none";
 
       document.querySelector(".detail-btn").onclick = () => {
+        trackEvent("gmaps_open", { place_type: "stadium", place_id: stadium.placeid, place_name: stadium.name });
         openExternalMapLink(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stadium.name)}&query_place_id=${stadium.placeid}`);
       };
 
       // ② 周辺表示ボタン
       const showAreaBtn = document.getElementById("showAreaBtn");
       showAreaBtn.onclick = () => {
+        trackEvent("show_area", { place_id: stadium.placeid, place_name: stadium.name });
         showGeneral = true;
         const generalTab = document.getElementById("generalTab");
         if (generalTab) generalTab.style.opacity = "1";
@@ -443,6 +578,12 @@ window.initMap = function () {
 
     marker.addListener("click", () => {
       openCard();
+      setTypeBadge(isSupporter ? "supporter" : "general");
+      trackEvent("view_place", {
+        place_type: isSupporter ? "supporter" : "general",
+        place_id:   shop.placeid,
+        place_name: shop.name
+      });
       document.getElementById("shopName").innerText = shop.name;
       const teamLine = (isSupporter && shop.team)
         ? `<span class="team-line">推しクラブ: ${shop.team}</span><br>` : "";
@@ -459,7 +600,10 @@ window.initMap = function () {
       if (shop.screen) badges.push(`${iconSvg("tv")} 試合放映あり`);
       const badgeLine = badges.length ? `${badges.join("　")}<br>` : "";
 
-      const noteLine = (isSupporter && shop.note) ? `${shop.note}` : "";
+      // 写真・ひとことの表示対象：サポーター歓迎店、およびsupportLevel=0の一般店舗。
+      // （掲載許可が未回答で一般店舗扱いとなった歓迎店[verified=false]は、従来どおり表示しない）
+      const showRichInfo = isSupporter || shop.supportLevel === 0;
+      const noteLine = (showRichInfo && shop.note) ? `${shop.note}` : "";
       document.getElementById("shopInfo").innerHTML =
         teamLine + flameLine + `ジャンル: ${shop.category || ""}<br>` + badgeLine + noteLine;
 
@@ -467,10 +611,10 @@ window.initMap = function () {
       document.getElementById("shopNotice").style.display = "block";
 
       const gallery = document.getElementById("shopImageGallery");
-      const images = isSupporter ? getShopImages(shop) : [];
+      const images = showRichInfo ? getShopImages(shop) : [];
       if (images.length) {
         gallery.innerHTML = images
-          .map(url => `<img src="${url}" class="shop-image-item" alt="">`)
+          .map(url => `<img src="${url}" class="shop-image-item" alt="${escapeAttr(shop.name)}の写真">`)
           .join("");
         gallery.style.display = "flex";
       } else {
@@ -478,6 +622,7 @@ window.initMap = function () {
         gallery.style.display = "none";
       }
       document.querySelector(".detail-btn").onclick = () => {
+        trackEvent("gmaps_open", { place_type: isSupporter ? "supporter" : "general", place_id: shop.placeid, place_name: shop.name });
         openExternalMapLink(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.name)}&query_place_id=${shop.placeid}`);
       };
 
@@ -617,6 +762,7 @@ window.initMap = function () {
   const stadiumTab = document.getElementById("stadiumTab");
   stadiumTab.addEventListener("click", () => {
     showStadiums = !showStadiums;
+    trackEvent("tab_click", { tab: "stadium", on: showStadiums ? 1 : 0 });
     stadiumTab.style.opacity = showStadiums ? "1" : "0.5";
     clearSearch();
     refreshStadiumMarkers();
@@ -627,6 +773,7 @@ window.initMap = function () {
   const generalTab = document.getElementById("generalTab");
   generalTab.addEventListener("click", () => {
     showGeneral = !showGeneral;
+    trackEvent("tab_click", { tab: "general", on: showGeneral ? 1 : 0 });
     generalTab.style.opacity = showGeneral ? "1" : "0.5";
     clearSearch();
     refreshShopMarkers();
@@ -638,6 +785,54 @@ window.initMap = function () {
   const savedScreen = document.getElementById("savedScreen");
   const savedList   = document.getElementById("savedList");
   const closeSavedBtn = document.getElementById("closeSavedBtn");
+
+  /* ── 保存リストの項目から、地図上のピンを開く ──
+     ・ピンの特定は店名ではなく placeid で行う（同名チェーン店の取り違え防止）
+     ・検索キーワードやタブOFFで非表示になっている場合は、表示を戻してから開く */
+  function findMarkerByPlaceId(type, placeid) {
+    return type === "shops"
+      ? shopMarkers.find(m => m.shopData && m.shopData.placeid === placeid)
+      : stadiumMarkers.find(m => m.stadiumData && m.stadiumData.placeid === placeid);
+  }
+
+  function openSavedPlace(type, placeid) {
+    const data = type === "shops"
+      ? allShops.find(s => s.placeid === placeid)
+      : allStadiums.find(s => s.placeid === placeid);
+    if (!data) return;
+
+    if (type === "shops") {
+      map.setCenter({ lat: Number(data.lat), lng: Number(data.lng) });
+      map.setZoom(15);
+    }
+
+    let marker = findMarkerByPlaceId(type, placeid);
+
+    // 検索キーワードで絞り込まれている場合は解除
+    if (!marker && searchInput.value.trim()) {
+      clearSearch();
+      marker = findMarkerByPlaceId(type, placeid);
+    }
+    // タブのOFFで隠れている場合はONに戻す
+    if (!marker) {
+      if (type === "shops" && !showGeneral && isEffectiveGeneral(data)) {
+        showGeneral = true;
+        generalTab.style.opacity = "1";
+        refreshShopMarkers();
+      } else if (type === "stadiums" && !showStadiums) {
+        showStadiums = true;
+        stadiumTab.style.opacity = "1";
+        refreshStadiumMarkers();
+      }
+      marker = findMarkerByPlaceId(type, placeid);
+    }
+
+    if (marker) {
+      google.maps.event.trigger(marker, "click");
+    } else {
+      showToast("この場所は現在表示できません。");
+    }
+  }
 
   function renderSavedList() {
     const data = loadSavedData();
@@ -683,21 +878,7 @@ window.initMap = function () {
       // 項目タップ → 地図に戻ってその場所を表示
       row.querySelector(".saved-item-main").addEventListener("click", () => {
         savedScreen.style.display = "none";
-        if (item.type === "shops") {
-          const shop = allShops.find(s => s.placeid === item.placeid);
-          if (shop) {
-            map.setCenter({ lat: Number(shop.lat), lng: Number(shop.lng) });
-            map.setZoom(15);
-            const marker = shopMarkers.find(m => m.getTitle() === shop.name);
-            if (marker) google.maps.event.trigger(marker, "click");
-          }
-        } else {
-          const st = allStadiums.find(s => s.placeid === item.placeid);
-          if (st) {
-            const marker = stadiumMarkers.find(m => m.getTitle() === st.name);
-            if (marker) google.maps.event.trigger(marker, "click");
-          }
-        }
+        openSavedPlace(item.type, item.placeid);
       });
 
       // 削除ボタン
@@ -714,6 +895,7 @@ window.initMap = function () {
   }
 
   savedTab.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "saved" });
     renderSavedList();
     savedScreen.style.display = "flex";
   });
@@ -795,6 +977,7 @@ window.initMap = function () {
   }
 
   listTab.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "list" });
     renderListView();
     listScreen.style.display = "flex";
   });
@@ -809,6 +992,7 @@ window.initMap = function () {
   const closeHelpBtn = document.getElementById("closeHelpBtn");
 
   helpBtn.addEventListener("click", () => {
+    trackEvent("help_open", {});
     helpScreen.style.display = "flex";
   });
 
@@ -820,10 +1004,24 @@ window.initMap = function () {
      ・IME変換中（未確定文字）は検索しない
      ・入力が止まって300ms後に再描画（1文字ごとの地図移動を防ぐ）
      ・キーワードが空になった場合は即時反映 */
+  let lastTrackedKeyword = "";
   function runSearch() {
     searchDebounceTimer = null;
     refreshAllMarkers();
     fitToSearchResults(); // ② 検索後ズーム
+
+    // 計測：検索語とヒット件数（0件の頻度や、よく探されている語の把握用）
+    const kw = searchInput.value.trim();
+    if (!kw) {
+      lastTrackedKeyword = "";
+    } else if (kw !== lastTrackedKeyword) {
+      lastTrackedKeyword = kw;
+      trackEvent("search", {
+        search_term:   kw,
+        shop_hits:     shopMarkers.length,
+        stadium_hits:  stadiumMarkers.length
+      });
+    }
   }
   function scheduleSearch() {
     clearTimeout(searchDebounceTimer);
@@ -866,8 +1064,8 @@ window.initMap = function () {
   /* ⑤ 店舗・スタジアム両方の初回読み込みが完了したらローディング画面を隠す */
   function hideLoadingOverlayIfReady() {
     if (lastShopsSnapshotAt > 0 && lastStadiumsSnapshotAt > 0) {
-      const overlay = document.getElementById("loadingOverlay");
-      if (overlay) overlay.classList.add("hide");
+      hideLoadingOverlay();
+      hideToast(); // 遅れてデータが届いた場合は、読み込み失敗の案内を消す
     }
   }
 
@@ -1035,8 +1233,12 @@ window.initMap = function () {
      一定時間経過後はローディング画面を強制的に閉じる
      （地図・再読み込みボタンに手動でアクセスできるようにするため） */
   setTimeout(() => {
-    const overlay = document.getElementById("loadingOverlay");
-    if (overlay) overlay.classList.add("hide");
+    hideLoadingOverlay();
+    // データが届いていない場合は、空の地図のままにせず案内を出す
+    if (lastShopsSnapshotAt === 0 || lastStadiumsSnapshotAt === 0) {
+      showToast("店舗データを読み込めませんでした。右下の再読み込みボタンをお試しください。", 8000);
+      trackEvent("load_error", { reason: "data_timeout" });
+    }
   }, 12000);
 
   /* ── ブラウザのオートフィル対応：ページ読込時にクリアボタン表示を更新 ── */

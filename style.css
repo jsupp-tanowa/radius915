@@ -908,3 +908,74 @@ html.is-standalone .bottom-sheet {
 .icon-star-filled {
   fill: currentColor;
 }
+
+/* ── 区分バッジ（店舗カード見出し上）──
+   ドットの色は地図ピンの色（歓迎店=青／一般店舗=赤）に合わせている */
+.shop-type-badge {
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  background: #f1f3f1;
+  color: #444;
+  font-family: "M PLUS 1p", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.shop-type-badge .type-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.type-supporter .type-dot { background: #1a73e8; }
+.type-general   .type-dot { background: #e53935; }
+.type-stadium   .type-dot { background: #2e7d32; }
+
+/* ── 読み込み失敗時の案内（ローディング画面の再利用） ── */
+.loading-overlay.is-error .loading-ball-area {
+  display: none;
+}
+
+.loading-overlay.is-error .loading-text {
+  padding: 0 28px;
+  text-align: center;
+  line-height: 1.7;
+}
+
+.loading-retry-btn {
+  font-size: 15px;
+  padding: 10px 26px;
+  color: #1b5e20;
+  border: 1px solid #1b5e20;
+  background: #fff;
+}
+
+/* ── トースト（画面下部の短いお知らせ） ── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%) translateY(10px);
+  max-width: calc(100% - 40px);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(33, 33, 33, .92);
+  color: #fff;
+  font-family: "M PLUS 1p", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  z-index: 2500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
