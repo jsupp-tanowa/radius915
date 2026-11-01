@@ -979,3 +979,123 @@ html.is-standalone .bottom-sheet {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── 検索欄：プレースホルダーが収まらない端末では「…」で省略する ── */
+.search-bar-fixed input {
+  text-overflow: ellipsis;
+}
+
+.search-bar-fixed input::placeholder {
+  text-overflow: ellipsis;
+}
+
+/* ── 店舗リンクのコピーボタン（カード内・お気に入りの隣） ── */
+.card-action-row-secondary {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.copy-link-btn {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: "M PLUS 1p", sans-serif;
+  user-select: none;
+  box-shadow: none;
+  line-height: 1;
+  white-space: nowrap;
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #a5d6a7;
+}
+
+/* ── 初回バナー（検索バーの下） ──
+   z-index は店舗カード・検索バー(999)より低くし、カードを開いたときはカードが手前に来る */
+.intro-banner {
+  position: absolute;
+  top: calc(118px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  z-index: 998;
+  box-sizing: border-box;
+  padding: 10px 44px 10px 14px;
+  background: #fff;
+  border: 1px solid #c8e6c9;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  font-family: "M PLUS 1p", sans-serif;
+  color: #1f2a1f;
+}
+
+.intro-lead {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1b5e20;
+  line-height: 1.4;
+}
+
+.intro-legend {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.intro-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.intro-dot-gap {
+  margin-left: 14px;
+}
+
+.dot-blue { background: #1a73e8; }
+.dot-red  { background: #e53935; }
+
+.intro-note {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #555;
+}
+
+.intro-more-btn {
+  margin: 0 0 0 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: "M PLUS 1p", sans-serif;
+  font-weight: 700;
+  color: #1b5e20;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  box-shadow: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.intro-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 36px;
+  text-align: center;
+  color: #666;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+  cursor: pointer;
+}
