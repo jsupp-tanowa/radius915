@@ -124,6 +124,60 @@ function setTypeBadge(kind) {
   el.style.display = "inline-flex";
 }
 
+/* ── URL と開いている店舗カードの同期（店舗への直リンク） ──
+   ・店舗カードを開くと、URLが ?shop=<placeid> になる（アドレスバー／共有からリンクを取得できる）
+   ・カードを閉じる／スタジアムを開くと、元のURLに戻す
+   ・履歴は積まない（replaceState）ので「戻る」操作には影響しない */
+function buildShopUrl(placeid) {
+  return location.origin + location.pathname + "?shop=" + encodeURIComponent(placeid);
+}
+
+function syncUrlToShop(placeid) {
+  try {
+    // shop 以外のパラメータ（流入計測用の utm_* など）は消さずに残す
+    const params = new URLSearchParams(location.search);
+    if (placeid) {
+      params.set("shop", placeid);
+    } else if (params.has("shop")) {
+      params.delete("shop");
+    } else {
+      return;
+    }
+    const qs = params.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+  } catch (e) { /* URL更新に失敗しても、アプリの動作には影響させない */ }
+}
+
+// アクセス時のURLに ?shop= があれば、データ読み込み完了後に該当店舗を開く（openPendingDeepLink）
+let pendingDeepLinkShopId = (new URLSearchParams(location.search).get("shop") || "").trim() || null;
+
+/* ── 初回バナー ──
+   初めて訪れた人向けの一言説明。閉じる／「くわしく見る」で、次回から表示しない。 */
+(function setupIntroBanner() {
+  const KEY = "supportanowa_intro_seen";
+  const banner = document.getElementById("introBanner");
+  if (!banner) return;
+
+  let seen = false;
+  try { seen = localStorage.getItem(KEY) === "1"; } catch (e) { /* 読めない場合は表示する */ }
+  if (seen) return;
+
+  banner.style.display = "block";
+
+  function dismiss(action) {
+    banner.style.display = "none";
+    try { localStorage.setItem(KEY, "1"); } catch (e) { /* 保存できない場合は次回も表示される */ }
+    trackEvent("intro_banner", { action: action });
+  }
+
+  document.getElementById("introCloseBtn").addEventListener("click", () => dismiss("close"));
+  document.getElementById("introMoreBtn").addEventListener("click", () => {
+    dismiss("help");
+    const helpBtn = document.getElementById("helpBtn");
+    if (helpBtn) helpBtn.click();
+  });
+})();
+
 let map;
 let userLocation  = null;
 let currentMarker = null;
@@ -361,6 +415,7 @@ window.initMap = function () {
   function closeCard() {
     const card = document.getElementById("shopCard");
     card.style.display = "none";
+    syncUrlToShop(null);
     setGoHereBtnEnabled(false);
     currentDestination = null;
     if (setOriginChk) setOriginChk.checked = false;
@@ -531,6 +586,9 @@ window.initMap = function () {
       updateSaveBtnDisplay();
       // ② スタジアムカードでは周辺表示ボタンを表示
       document.getElementById("showAreaBtn").style.display = "block";
+      // リンクのコピーは店舗カードのみ（スタジアムは直リンク対象外）
+      document.getElementById("copyLinkBtn").style.display = "none";
+      syncUrlToShop(null);
     });
 
     marker.stadiumData = stadium;
@@ -639,6 +697,9 @@ window.initMap = function () {
       updateSaveBtnDisplay();
       // ② 店舗カードでは周辺表示ボタンを非表示
       document.getElementById("showAreaBtn").style.display = "none";
+      // 店舗カードではリンクのコピーを表示し、URLを ?shop=<placeid> に更新
+      document.getElementById("copyLinkBtn").style.display = "flex";
+      syncUrlToShop(shop.placeid);
     });
 
     marker.shopData = shop;
@@ -833,6 +894,76 @@ window.initMap = function () {
       showToast("この場所は現在表示できません。");
     }
   }
+
+  /* ── 店舗への直リンク（?shop=<placeid>）──
+     データ読み込み完了後に一度だけ、該当店舗のカードを開く。
+     見つからない（存在しない・非公開）場合は、お知らせを出してURLを元に戻す。
+     地図の移動・検索やタブで隠れていた場合の復帰は、保存リストと共通の openSavedPlace が担う。 */
+  function openPendingDeepLink() {
+    if (!pendingDeepLinkShopId) return;
+    const id = pendingDeepLinkShopId;
+    pendingDeepLinkShopId = null;
+
+    if (!allShops.some(s => s.placeid === id)) {
+      trackEvent("deeplink_open", { place_id: id, found: 0 });
+      showToast("この店舗は見つかりませんでした。");
+      syncUrlToShop(null);
+      return;
+    }
+
+    openSavedPlace("shops", id);
+    const opened = !!currentDestination && currentDestination.placeid === id;
+    trackEvent("deeplink_open", { place_id: id, found: opened ? 1 : 0 });
+    if (!opened) syncUrlToShop(null); // 非公開などで開けなかった場合
+  }
+
+  /* ── 店舗リンクのコピー ──
+     ・クリップボードAPI → 使えない環境では旧方式 → それも不可なら、手動コピー用に表示 */
+  const copyLinkBtn = document.getElementById("copyLinkBtn");
+  const copyLinkLabel = copyLinkBtn.querySelector("span");
+  const COPY_LABEL_DEFAULT = copyLinkLabel.textContent;
+  let copyLabelTimer = null;
+
+  async function copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* 旧方式にフォールバック */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  copyLinkBtn.addEventListener("click", async () => {
+    if (!currentDestination || currentDestination.type !== "shops") return;
+    const url = buildShopUrl(currentDestination.placeid);
+    trackEvent("copy_link", {
+      place_id:   currentDestination.placeid,
+      place_name: currentDestination.name
+    });
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      copyLinkLabel.textContent = "コピーしました";
+      clearTimeout(copyLabelTimer);
+      copyLabelTimer = setTimeout(() => { copyLinkLabel.textContent = COPY_LABEL_DEFAULT; }, 2000);
+    } else {
+      window.prompt("リンクをコピーしてください", url);
+    }
+  });
 
   function renderSavedList() {
     const data = loadSavedData();
@@ -1066,6 +1197,7 @@ window.initMap = function () {
     if (lastShopsSnapshotAt > 0 && lastStadiumsSnapshotAt > 0) {
       hideLoadingOverlay();
       hideToast(); // 遅れてデータが届いた場合は、読み込み失敗の案内を消す
+      openPendingDeepLink();
     }
   }
 

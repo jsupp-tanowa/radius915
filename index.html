@@ -35,6 +35,7 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://supportanowa.web.app/">
   <meta property="og:image" content="https://supportanowa.web.app/ogp.jpg">
+  <meta name="twitter:card" content="summary_large_image">
 </head>
 
 <body>
@@ -43,6 +44,11 @@
      stroke="currentColor" で各配置先のCSS color(ブランドカラー)をそのまま継承する。 -->
 <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden;" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    <!-- リンク（店舗リンクのコピー用） -->
+    <symbol id="icon-link" viewBox="0 0 24 24">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+    </symbol>
     <!-- サッカーボール（スタジアム／⚽の置き換え） -->
     <symbol id="icon-ball" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="9"></circle>
@@ -144,12 +150,22 @@
         id="searchInput"
         type="text"
         aria-label="店名・スタジアム名・クラブ名・ジャンルで検索"
-        placeholder="店名・スタジアム名・クラブ名・ジャンル検索">
+        placeholder="店名・スタジアム・クラブ・ジャンル">
       <button id="searchClearBtn" class="search-clear-btn" aria-label="検索をクリア">×</button>
     </div>
   </div>
 
 
+
+  <!-- 初回バナー（初めて訪れた人向けの一言説明。閉じると次回から表示しない） -->
+  <div id="introBanner" class="intro-banner" style="display:none;" role="region" aria-label="サポたのわについて">
+    <button id="introCloseBtn" class="intro-close-btn" aria-label="閉じる">×</button>
+    <div class="intro-lead">遠征先で食べて、飲んで、語る。</div>
+    <div class="intro-legend">
+      <span class="intro-dot dot-blue"></span>サポーター歓迎店<span class="intro-dot dot-red intro-dot-gap"></span>一般のお店
+    </div>
+    <div class="intro-note">すべて管理人が実際に訪問した店です。<button id="introMoreBtn" class="intro-more-btn">くわしく見る</button></div>
+  </div>
 
   <!-- 現在地ボタン・再読み込みボタン -->
   <div class="button-area">
@@ -204,6 +220,10 @@
         <button id="saveToggleBtn" class="save-toggle-btn">
           <svg class="icon-inline save-star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-star"></use></svg>
           <span class="save-toggle-label">お気に入り</span>
+        </button>
+        <button id="copyLinkBtn" class="copy-link-btn" style="display:none;">
+          <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-link"></use></svg>
+          <span>リンクをコピー</span>
         </button>
       </div>
       <button id="showAreaBtn" class="show-area-btn" style="display:none;">
