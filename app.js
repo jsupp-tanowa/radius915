@@ -227,6 +227,19 @@ function matchField(field, variants) {
   return variants.some(v => v && target.includes(v));
 }
 
+/* 都道府県名の検索：先頭一致で、「都・道・府・県」の接尾辞は有無どちらでも可。
+   ・「京都」で「東京都」に誤ヒットしない（部分一致だと「東京都」にも含まれてしまうため）
+   ・「東京」「東京都」「大阪」「大阪府」など、どちらの書き方でも該当の都道府県にヒットする */
+function matchPrefecture(pref, variants) {
+  if (!pref) return false;
+  const strip = s => s.replace(/[都道府県]$/, "");
+  const target = strip(normalizeText(pref));
+  return variants.some(v => {
+    const k = strip(v);
+    return k && target.startsWith(k);
+  });
+}
+
 /* ── 2点間の距離（km）を計算（haversine公式） ──
    ④「周辺の店舗を表示」の半径フィルタで使用 */
 function distanceKm(lat1, lng1, lat2, lng2) {
@@ -553,8 +566,7 @@ window.initMap = function () {
       showAreaBtn.onclick = () => {
         trackEvent("show_area", { place_id: stadium.placeid, place_name: stadium.name });
         showGeneral = true;
-        const generalTab = document.getElementById("generalTab");
-        if (generalTab) generalTab.style.opacity = "1";
+        setChipState(generalChip, true);
         // ② 検索ボックスと検索結果をクリアしてから再描画
         //    （検索キーワードが残っていると店舗のcategory/team検索に
         //      ヒットせず、周辺の一般店舗や他スタジアムが表示されない不具合対策）
@@ -709,14 +721,15 @@ window.initMap = function () {
 
   /* ── 店舗マーカー再描画 ── */
   function refreshShopMarkers() {
+    updateSupporterCount();
     shopMarkers.forEach(m => m.setMap(null));
     shopMarkers = [];
 
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
 
-    // ① 検索ボックスは shops.name / shops.category / shops.team を検索対象とする
-    //   （ピンの絞り込みは検索キーワード・タブのみで行う）
+    // ① 検索ボックスは shops.name / shops.category / shops.team / shops.prefecture を検索対象とする
+    //   （ピンの絞り込みは検索キーワード・チップのみで行う）
     allShops.filter(shop => {
       if (!shop.published) return false;
       // verified=falseのサポーター歓迎店は一般店舗と同一の表示条件とする
@@ -725,11 +738,14 @@ window.initMap = function () {
         return (
           matchField(shop.name,     variants) ||
           matchField(shop.category, variants) ||
-          matchField(shop.team,     variants)
+          matchField(shop.team,     variants) ||
+          matchPrefecture(shop.prefecture, variants)
         );
       }
       return true;
     }).forEach(shop => createShopMarker(shop));
+
+    updateSearchStatus();
   }
 
   /* ── スタジアムマーカー再描画 ──
@@ -738,7 +754,7 @@ window.initMap = function () {
     stadiumMarkers.forEach(m => m.setMap(null));
     stadiumMarkers = [];
 
-    if (!showStadiums) return;
+    if (!showStadiums) { updateSearchStatus(); return; }
 
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
@@ -749,13 +765,15 @@ window.initMap = function () {
         return (
           matchField(s.name,       variants) ||
           matchField(s.subname,    variants) ||
-          matchField(s.prefecture, variants) ||
+          matchPrefecture(s.prefecture, variants) ||
           matchField(s.city,       variants) ||
           matchField(teamsStr,     variants)
         );
       }
       return true;
     }).forEach(s => createStadiumMarker(s));
+
+    updateSearchStatus();
   }
 
   function refreshAllMarkers() {
@@ -763,11 +781,66 @@ window.initMap = function () {
     refreshStadiumMarkers();
   }
 
+  /* ── 検索結果の件数表示（チップ行の下） ──
+     ・検索中：「○○」の検索結果：店舗 N件・スタジアム M件
+     ・0件　：見つからなかったことと、探し方のヒントを表示
+     ・一般店舗／スタジアムが非表示のときは、検索対象外になっている旨も添える
+     ・データ読み込み前は表示しない（読み込み前に「見つかりません」と出さない）
+     ※検索語は利用者の入力なので textContent で表示する（HTMLとして解釈させない） */
+  function updateSearchStatus() {
+    const el = document.getElementById("searchStatus");
+    if (!el) return;
+    const keyword   = searchInput.value.trim();
+    const dataReady = allShops.length > 0 && allStadiums.length > 0;
+
+    if (!keyword || !dataReady) {
+      el.style.display = "none";
+      el.textContent = "";
+      document.body.classList.remove("is-searching");
+      return;
+    }
+
+    const shopsN    = shopMarkers.length;
+    const stadiumsN = stadiumMarkers.length;
+    const label     = keyword.length > 14 ? keyword.slice(0, 14) + "…" : keyword;
+
+    const main  = document.createElement("div");
+    const notes = [];
+    if (shopsN + stadiumsN === 0) {
+      main.textContent = `「${label}」は見つかりませんでした`;
+      notes.push("店名・地名・クラブ名・ジャンルで探せます。");
+      el.classList.add("is-empty");
+    } else {
+      const parts = [];
+      if (shopsN > 0)    parts.push(`店舗 ${shopsN}件`);
+      if (stadiumsN > 0) parts.push(`スタジアム ${stadiumsN}件`);
+      main.textContent = `「${label}」の検索結果：${parts.join("・")}`;
+      el.classList.remove("is-empty");
+    }
+
+    const hidden = [];
+    if (!showGeneral)  hidden.push("一般店舗");
+    if (!showStadiums) hidden.push("スタジアム");
+    if (hidden.length) notes.push(`${hidden.join("・")}は非表示のため、検索対象外です。`);
+
+    el.textContent = "";
+    el.appendChild(main);
+    notes.forEach(text => {
+      const d = document.createElement("div");
+      d.className = "ss-note";
+      d.textContent = text;
+      el.appendChild(d);
+    });
+    el.style.display = "block";
+    document.body.classList.add("is-searching"); // 検索中は初回バナーを隠す（件数表示と重なるため）
+  }
+
   /* ── ② 検索後ズーム ──
      スタジアム・店舗のヒット状況に応じて表示範囲を決める。
      ・スタジアムのみ：ヒットしたスタジアム全体
      ・店舗のみ    ：出発地/現在地がある場合は「基準点＋最寄りの1店舗」、なければヒット全店舗
      ・両方ヒット  ：スタジアム全件＋店舗（基準点がある場合は最寄り1店舗）を含む範囲
+     ・地名ヒット  ：上記より優先し、該当エリア（都道府県・市区町村）の全ピンが収まる範囲
      これにより店名検索時にスタジアム側へ引っ張られず、全国チェーン店でも広域に飛びにくい。 */
   function fitToSearchResults() {
     const keyword = searchInput.value.trim();
@@ -779,6 +852,24 @@ window.initMap = function () {
       originData.type === "stadiums" &&
       stadiumMarkers.length === 1 &&
       stadiumMarkers[0].stadiumData.placeid === originData.placeid;
+
+    // 地名（都道府県／スタジアムの市区町村）で検索した場合は、該当エリアの全ピンが収まる範囲に移動する。
+    // 「基準点＋最寄り1件」のロジックのままだと、遠方の地名を検索しても最寄りの1件だけが対象となり、
+    // 遠征先のエリア全体が見えないため。
+    const areaVariants = normalizeKeyword(keyword);
+    const areaPositions = [
+      ...stadiumMarkers
+        .filter(m => matchPrefecture(m.stadiumData.prefecture, areaVariants) || matchField(m.stadiumData.city, areaVariants))
+        .map(m => m.getPosition()),
+      ...shopMarkers
+        .filter(m => matchPrefecture(m.shopData.prefecture, areaVariants))
+        .map(m => m.getPosition())
+    ];
+    const onlyOriginHit = isOnlyOriginStadiumItself && shopMarkers.length === 0;
+    if (areaPositions.length > 0 && !onlyOriginHit) {
+      fitToPositions(areaPositions, 80);
+      return;
+    }
 
     const stadiumPositions = isOnlyOriginStadiumItself
       ? []
@@ -819,27 +910,50 @@ window.initMap = function () {
     fitToPositions(points, 80);
   }
 
-  /* ── タブ：スタジアム ── */
-  const stadiumTab = document.getElementById("stadiumTab");
-  stadiumTab.addEventListener("click", () => {
+  /* ── フィルターチップ（検索バーの下） ──
+     ・サポーター歓迎店：常に表示（切り替え不可）。件数を表示し、タップすると「常に表示」とお知らせする
+     ・一般店舗／スタジアム：タップでON/OFF。状態は塗り・色で示し、aria-pressed にも反映する
+     ・ドットの色は地図ピンの色（歓迎店=青／一般店舗=赤）に合わせ、凡例を兼ねる */
+  const chipSupporter = document.getElementById("chipSupporter");
+  const generalChip   = document.getElementById("chipGeneral");
+  const stadiumChip   = document.getElementById("chipStadium");
+
+  function setChipState(chip, on) {
+    chip.classList.toggle("on", on);
+    chip.classList.toggle("off", !on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  // サポーター歓迎店の件数（公開中で、掲載許可済みの歓迎店）
+  function updateSupporterCount() {
+    const el = document.getElementById("supporterCount");
+    if (!el) return;
+    const n = allShops.filter(s => s.published && !isEffectiveGeneral(s)).length;
+    el.textContent = n > 0 ? String(n) : "";
+  }
+
+  chipSupporter.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "supporter" });
+    showToast("サポーター歓迎店は、常に地図に表示されます。");
+  });
+
+  stadiumChip.addEventListener("click", () => {
     showStadiums = !showStadiums;
     trackEvent("tab_click", { tab: "stadium", on: showStadiums ? 1 : 0 });
-    stadiumTab.style.opacity = showStadiums ? "1" : "0.5";
+    setChipState(stadiumChip, showStadiums);
     clearSearch();
     refreshStadiumMarkers();
   });
-  stadiumTab.style.opacity = "1";
+  setChipState(stadiumChip, true);
 
-  /* ── タブ：一般店舗 ── */
-  const generalTab = document.getElementById("generalTab");
-  generalTab.addEventListener("click", () => {
+  generalChip.addEventListener("click", () => {
     showGeneral = !showGeneral;
     trackEvent("tab_click", { tab: "general", on: showGeneral ? 1 : 0 });
-    generalTab.style.opacity = showGeneral ? "1" : "0.5";
+    setChipState(generalChip, showGeneral);
     clearSearch();
     refreshShopMarkers();
   });
-  generalTab.style.opacity = "1";
+  setChipState(generalChip, true);
 
   /* ── タブ：保存 ── */
   const savedTab    = document.getElementById("savedTab");
@@ -878,11 +992,11 @@ window.initMap = function () {
     if (!marker) {
       if (type === "shops" && !showGeneral && isEffectiveGeneral(data)) {
         showGeneral = true;
-        generalTab.style.opacity = "1";
+        setChipState(generalChip, true);
         refreshShopMarkers();
       } else if (type === "stadiums" && !showStadiums) {
         showStadiums = true;
-        stadiumTab.style.opacity = "1";
+        setChipState(stadiumChip, true);
         refreshStadiumMarkers();
       }
       marker = findMarkerByPlaceId(type, placeid);
@@ -1162,6 +1276,15 @@ window.initMap = function () {
     }
     searchDebounceTimer = setTimeout(runSearch, 300);
   }
+
+  searchInput.addEventListener("keydown", e => {
+    // IME変換中のEnter（変換の確定）は無視する
+    if (e.key !== "Enter" || e.isComposing || isComposing) return;
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    runSearch();
+    searchInput.blur(); // キーボードを閉じて、検索結果の地図が見えるようにする
+  });
 
   searchInput.addEventListener("compositionstart", () => {
     isComposing = true;

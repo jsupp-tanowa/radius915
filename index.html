@@ -148,14 +148,32 @@
     <div class="search-bar-inner">
       <input
         id="searchInput"
-        type="text"
-        aria-label="店名・スタジアム名・クラブ名・ジャンルで検索"
-        placeholder="店名・スタジアム・クラブ・ジャンル">
+        type="search"
+        enterkeyhint="search"
+        autocomplete="off"
+        aria-label="店名・地名・スタジアム名・クラブ名・ジャンルで検索"
+        placeholder="店名・地名・クラブ・ジャンルで検索">
       <button id="searchClearBtn" class="search-clear-btn" aria-label="検索をクリア">×</button>
     </div>
   </div>
 
 
+
+  <!-- フィルターチップ（検索バーの下）。歓迎店は常に表示、一般店舗・スタジアムはON/OFF -->
+  <div id="filterChips" class="filter-chips" role="group" aria-label="地図に表示する種類">
+    <button type="button" id="chipSupporter" class="chip chip-supporter" aria-label="サポーター歓迎店（常に表示されます）">
+      <span class="chip-dot dot-blue"></span><span>サポーター歓迎店</span><span id="supporterCount" class="chip-count"></span>
+    </button>
+    <button type="button" id="chipGeneral" class="chip on" aria-pressed="true">
+      <span class="chip-dot dot-red"></span><span>一般店舗</span>
+    </button>
+    <button type="button" id="chipStadium" class="chip on" aria-pressed="true">
+      <span class="chip-dot chip-dot-square dot-green"></span><span>スタジアム</span>
+    </button>
+  </div>
+
+  <!-- 検索結果の件数表示（検索中のみ。0件のときは見つからなかった旨を表示） -->
+  <div id="searchStatus" class="search-status" role="status" aria-live="polite" style="display:none;"></div>
 
   <!-- 初回バナー（初めて訪れた人向けの一言説明。閉じると次回から表示しない） -->
   <div id="introBanner" class="intro-banner" style="display:none;" role="region" aria-label="サポたのわについて">
@@ -236,8 +254,6 @@
 
   <!-- 下タブ -->
   <div class="tab-bar">
-    <div class="tab-item" id="stadiumTab"><svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-ball"></use></svg><span class="tab-label">スタジアム</span></div>
-    <div class="tab-item" id="generalTab"><svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-store"></use></svg><span class="tab-label">一般店舗</span></div>
     <div class="tab-item" id="listTab"><svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-list"></use></svg><span class="tab-label">リスト表示</span></div>
     <div class="tab-item" id="savedTab"><svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-star"></use></svg><span class="tab-label">お気に入り</span></div>
   </div>
@@ -304,12 +320,12 @@
       </section>
       <section class="help-section">
         <h3>② 検索</h3>
-        <p>店名・スタジアム名・クラブ名・飲食店のジャンルで検索できます。</p>
+        <p>店名・地名（都道府県）・スタジアム名・クラブ名・飲食店のジャンルで検索できます。<br>ひらがな／カタカナ、全角／半角の違いは気にせず入力できます。<br>「福岡」「大阪府」のように地名で検索すると、そのエリアのスタジアムとお店が表示されます。</p>
       </section>
       <section class="help-section">
         <h3>③ 各機能ボタン</h3>
         <ul>
-          <li><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-ball"></use></svg>スタジアム／<svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-store"></use></svg>一般店舗：地図に表示するピンの種類を切り替えられます</li>
+          <li>検索バー下のチップ：「一般店舗」「スタジアム」をタップすると、地図に表示するピンのON/OFFを切り替えられます。サポーター歓迎店は常に表示されます</li>
           <li><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-list"></use></svg>リスト表示：現在地図に表示されている店舗・スタジアムを一覧で確認できます。項目をタップするとその場所の詳細カードが開きます</li>
           <li><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-star"></use></svg>お気に入り：保存した店舗・スタジアムの一覧を確認できます</li>
         </ul>
