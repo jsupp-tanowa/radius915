@@ -174,7 +174,7 @@ button {
    と同じだけオフセットすることで、見た目上は地図の右上角に配置する */
 .zoom-control-area {
   position: absolute;
-  top: calc(112px + env(safe-area-inset-top, 0px) + 10px);
+  top: calc(160px + env(safe-area-inset-top, 0px));
   right: 10px;
   z-index: 999;
   display: flex;
@@ -331,6 +331,7 @@ html.is-standalone .tab-bar::after {
 /* ※地図とタブバーの間の隙間を緑色で埋める対応は、Google著作権表示が
    隠れる原因になったため撤去済み（今後は#map側の余白調整のみで対応）。 */
 .tab-item {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1017,9 +1018,9 @@ html.is-standalone .bottom-sheet {
    z-index は店舗カード・検索バー(999)より低くし、カードを開いたときはカードが手前に来る */
 .intro-banner {
   position: absolute;
-  top: calc(118px + env(safe-area-inset-top, 0px));
+  top: calc(160px + env(safe-area-inset-top, 0px));
   left: 10px;
-  right: 10px;
+  right: 54px;
   z-index: 998;
   box-sizing: border-box;
   padding: 10px 44px 10px 14px;
@@ -1098,4 +1099,133 @@ html.is-standalone .bottom-sheet {
   border-radius: 50%;
   box-shadow: none;
   cursor: pointer;
+}
+
+/* ── フィルターチップ（検索バーの下） ──
+   360px幅の端末でも3つが収まるよう、アイコンは付けず、状態は塗りと色で示す。
+   それでも収まらない場合（文字サイズ拡大など）は横スクロールする。 */
+.filter-chips {
+  position: absolute;
+  top: calc(112px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  z-index: 998;
+  display: flex;
+  gap: 5px;
+  padding: 2px 2px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid #388e3c;
+  border-radius: 17px;
+  background: #fff;
+  color: #1f2a1f;
+  font-family: "M PLUS 1p", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* サポーター歓迎店：常に表示。切り替えられないことが伝わるよう、薄い青の塗りにする */
+.chip-supporter {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+}
+
+.chip-count {
+  color: #1a73e8;
+}
+
+.chip-count:empty {
+  display: none;
+}
+
+.chip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.chip-dot-square {
+  border-radius: 2px;
+}
+
+.dot-green { background: #2e7d32; }
+
+/* OFF：灰色の地・薄い文字・薄いドット */
+.chip.off {
+  border-color: #b9c0b9;
+  background: #e6e9e6;
+  color: #6b736b;
+  box-shadow: none;
+}
+
+.chip.off .chip-dot {
+  opacity: .4;
+}
+
+/* ── 検索欄：type="search" の標準の×ボタンは隠し、独自の×ボタンを使う ── */
+.search-bar-fixed input[type="search"]::-webkit-search-cancel-button,
+.search-bar-fixed input[type="search"]::-webkit-search-decoration,
+.search-bar-fixed input[type="search"]::-webkit-search-results-button,
+.search-bar-fixed input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* ── 検索結果の件数表示（チップ行の下）──
+   右側はズームボタン（幅約34px）を避けて空ける */
+.search-status {
+  position: absolute;
+  top: calc(158px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 54px;
+  z-index: 998;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #c8e6c9;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  font-family: "M PLUS 1p", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #1f2a1f;
+}
+
+.search-status.is-empty {
+  background: #fff8e1;
+  border-color: #f0d98c;
+}
+
+.search-status .ss-note {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #555;
+}
+
+/* 検索中は、件数表示と重なる初回バナーを一時的に隠す（閉じた扱いにはしない） */
+body.is-searching .intro-banner {
+  display: none !important;
 }
