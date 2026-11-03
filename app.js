@@ -596,8 +596,9 @@ window.initMap = function () {
       setOriginChk.checked = !!(originData && originData.placeid === stadium.placeid);
       updateRouteTabState();
       updateSaveBtnDisplay();
-      // ② スタジアムカードでは周辺表示ボタンを表示
-      document.getElementById("showAreaBtn").style.display = "block";
+      // ② スタジアムカードでは「周辺のお店を見る」（主ボタン）を表示し、圏内の件数を案内する
+      document.getElementById("showAreaWrap").style.display = "block";
+      updateShowAreaBlock(stadium);
       // リンクのコピーは店舗カードのみ（スタジアムは直リンク対象外）
       document.getElementById("copyLinkBtn").style.display = "none";
       syncUrlToShop(null);
@@ -606,6 +607,41 @@ window.initMap = function () {
     marker.stadiumData = stadium;
     stadiumMarkers.push(marker);
     return marker;
+  }
+
+  /* ── スタジアム周辺（stadium.radius km 以内）の掲載店舗数 ──
+     ・公開中の店舗が対象。verified=false の歓迎店は、一般店舗と同じ扱い（歓迎店の件数には含めない）
+     ・座標が欠けている店舗（距離がNaN）は数えない */
+  function countShopsNearStadium(stadium) {
+    const r   = Number(stadium.radius) || 3;
+    const lat = Number(stadium.lat);
+    const lng = Number(stadium.lng);
+    let total = 0;
+    let supporters = 0;
+    allShops.forEach(s => {
+      if (!s.published) return;
+      const d = distanceKm(lat, lng, Number(s.lat), Number(s.lng));
+      if (!(d <= r)) return;
+      total++;
+      if (!isEffectiveGeneral(s)) supporters++;
+    });
+    return { r, total, supporters };
+  }
+
+  /* ── 「周辺のお店を見る」ボタンと件数の案内（スタジアムカード） ──
+     圏内に掲載店がない場合は、ボタンを押せない状態にして、その旨を表示する */
+  function updateShowAreaBlock(stadium) {
+    const btn     = document.getElementById("showAreaBtn");
+    const caption = document.getElementById("showAreaCaption");
+    const { r, total, supporters } = countShopsNearStadium(stadium);
+    if (total > 0) {
+      btn.disabled = false;
+      caption.textContent = `半径${r}km圏内に ${total}件` +
+        (supporters > 0 ? `（サポーター歓迎店 ${supporters}件）` : "");
+    } else {
+      btn.disabled = true;
+      caption.textContent = `半径${r}km圏内には、掲載しているお店がまだありません。`;
+    }
   }
 
   /* ── verified 判定 ──
@@ -707,8 +743,8 @@ window.initMap = function () {
       setOriginChk.checked = !!(originData && originData.placeid === shop.placeid);
       updateRouteTabState();
       updateSaveBtnDisplay();
-      // ② 店舗カードでは周辺表示ボタンを非表示
-      document.getElementById("showAreaBtn").style.display = "none";
+      // ② 店舗カードでは「周辺のお店を見る」を非表示
+      document.getElementById("showAreaWrap").style.display = "none";
       // 店舗カードではリンクのコピーを表示し、URLを ?shop=<placeid> に更新
       document.getElementById("copyLinkBtn").style.display = "flex";
       syncUrlToShop(shop.placeid);
