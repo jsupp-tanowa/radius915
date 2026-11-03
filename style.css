@@ -441,23 +441,46 @@ html.is-standalone .bottom-sheet {
 }
 
 /* 周辺表示ボタン */
+/* スタジアムカードの主ボタン「周辺のお店を見る」
+   カード内で最も目立つ操作（緑の塗り・幅いっぱい）。「ここに行く」「お気に入り」より上に置く */
+.show-area-wrap {
+  margin-top: 12px;
+}
+
 .show-area-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 65%;
-  margin: 10px auto 0;
-  padding: 8px 12px;
-  font-size: 12px;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 13px 14px;
+  font-size: 15px;
   font-family: "M PLUS 1p", sans-serif;
   font-weight: 700;
-  background: #e8f5e9;
-  color: #1b5e20;
-  border: 1.5px solid #a5d6a7;
+  background: #2e7d32;
+  color: #fff;
+  border: none;
   border-radius: 12px;
-  box-shadow: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
   cursor: pointer;
+}
+
+/* 圏内に掲載店がないとき：押しても何も出ない行き止まりを避けるため、押せない状態にする */
+.show-area-btn:disabled {
+  background: #e6e9e6;
+  color: #6b736b;
+  box-shadow: none;
+  cursor: default;
+}
+
+.show-area-caption {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  font-family: "M PLUS 1p", sans-serif;
+  color: #555;
 }
 
 .close-btn {

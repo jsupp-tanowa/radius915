@@ -223,6 +223,14 @@
       <div id="shopImageGallery" class="shop-image-gallery" style="display:none;"></div>
       <div id="shopInfo" class="bottom-info">説明</div>
       <div id="shopNotice" class="shop-notice">※営業時間などについては、最新情報をご確認ください。</div>
+      <!-- スタジアムカード専用：周辺のお店へ進む主ボタン（店舗カードでは非表示） -->
+      <div id="showAreaWrap" class="show-area-wrap" style="display:none;">
+        <button id="showAreaBtn" class="show-area-btn">
+          <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-store"></use></svg>
+          <span>周辺のお店を見る</span>
+        </button>
+        <div id="showAreaCaption" class="show-area-caption"></div>
+      </div>
       <div class="card-action-row">
         <label id="originToggleBtn" class="origin-toggle-btn">
           <input type="checkbox" id="setOriginChk">
@@ -244,10 +252,6 @@
           <span>リンクをコピー</span>
         </button>
       </div>
-      <button id="showAreaBtn" class="show-area-btn" style="display:none;">
-        <svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-mappin"></use></svg>
-        <span>周辺の店舗を表示</span>
-      </button>
       <button class="detail-btn">Googleマップで見る</button>
     </div>
   </div>
