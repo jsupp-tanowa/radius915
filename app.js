@@ -11,14 +11,69 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-// ① Google Analytics（GA4）計測を有効化
-const analytics = firebase.analytics();
+/* ── 運営者自身のアクセスの計測除外（?ga=off / ?ga=on） ──
+   運営者の確認作業が分析データに混ざらないよう、ブラウザごとに計測を止められる。
+   ・ https://supportanowa.web.app/?ga=off を開くと、そのブラウザの計測を停止（localStorageに記録）
+   ・ ?ga=on で再開
+   ・ 停止中は firebase.analytics() 自体を初期化しないため、page_view などの自動イベントも送信されない
+   ※ブラウザ／アプリごとに必要（Safari・Chrome・Xアプリ内ブラウザ・PCなど）。
+   ※Safariは、そのサイトを7日間操作しないと記録が消えることがある。 */
+const GA_OPTOUT_KEY = "supportanowa_ga_optout";
+let analyticsOptedOut = false;
+let gaOptOutNotice = null; // 切り替えをお知らせするメッセージ（ローディングが閉じたあとにトースト表示）
+
+(function applyAnalyticsOptOut() {
+  let params = null;
+  let ga = null;
+  try {
+    params = new URLSearchParams(location.search);
+    ga = params.get("ga");
+  } catch (e) { /* 取得できない場合は通常どおり計測する */ }
+
+  const readOptOut = () => {
+    try { return localStorage.getItem(GA_OPTOUT_KEY) === "1"; } catch (e) { return false; }
+  };
+  const writeOptOut = on => {
+    try {
+      if (on) localStorage.setItem(GA_OPTOUT_KEY, "1");
+      else localStorage.removeItem(GA_OPTOUT_KEY);
+      return true;
+    } catch (e) { return false; }
+  };
+
+  if (ga === "off") {
+    const saved = writeOptOut(true);
+    analyticsOptedOut = true; // 保存できなくても、今回の閲覧は計測しない
+    gaOptOutNotice = saved
+      ? "このブラウザからのアクセスは、計測しないようにしました。"
+      : "このブラウザでは設定を保存できないため、今回の閲覧のみ計測しません。";
+  } else if (ga === "on") {
+    writeOptOut(false);
+    analyticsOptedOut = false;
+    gaOptOutNotice = "このブラウザの計測を再開しました。";
+  } else {
+    analyticsOptedOut = readOptOut();
+  }
+
+  // URLから ga パラメータだけを取り除く（shop や utm_* などは残す）
+  if (params && (ga === "off" || ga === "on")) {
+    try {
+      params.delete("ga");
+      const qs = params.toString();
+      history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+    } catch (e) { /* URLの更新に失敗しても動作には影響させない */ }
+  }
+})();
+
+// ① Google Analytics（GA4）計測を有効化（計測除外中は初期化しない）
+const analytics = analyticsOptedOut ? null : firebase.analytics();
 
 /* ── GA4 カスタムイベント送信 ──
    ・ローカル確認(localhost)では送信せずコンソールに出力し、本番の計測を汚さない
    ・広告ブロッカー等で計測が使えなくても、アプリの動作に影響させない
    ・文字列パラメータはGA4の上限(100文字)に切り詰める */
 function trackEvent(name, params) {
+  if (analyticsOptedOut || !analytics) return; // 計測除外中（?ga=off）
   const safe = {};
   Object.keys(params || {}).forEach(k => {
     const v = params[k];
@@ -44,17 +99,22 @@ function escapeAttr(s) {
 
 /* ── トースト（画面下部の短いお知らせ） ── */
 let toastTimer = null;
-function showToast(message, ms) {
+let toastKind = null; // お知らせの種類（"load_error" など）。種類を指定して消すときに使う
+function showToast(message, ms, kind) {
   const el = document.getElementById("toast");
   if (!el) return;
   el.textContent = message;
   el.classList.add("show");
+  toastKind = kind || null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, ms || 4000);
+  toastTimer = setTimeout(() => hideToast(), ms || 4000);
 }
-function hideToast() {
+// kind を指定した場合は、その種類のお知らせが出ているときだけ消す（他のお知らせを巻き込まない）
+function hideToast(kind) {
+  if (kind && toastKind !== kind) return;
   const el = document.getElementById("toast");
   if (el) el.classList.remove("show");
+  toastKind = null;
 }
 
 /* ── ローディング画面／読み込み失敗の案内 ──
@@ -65,7 +125,13 @@ const LOADING_DEFAULT_TEXT = "店舗情報を読み込み中...";
 function hideLoadingOverlay() {
   const overlay = document.getElementById("loadingOverlay");
   // エラー表示中は閉じない（案内を消さないため）
-  if (overlay && !overlay.classList.contains("is-error")) overlay.classList.add("hide");
+  if (overlay && !overlay.classList.contains("is-error")) {
+    overlay.classList.add("hide");
+    if (gaOptOutNotice) {
+      showToast(gaOptOutNotice, 6000);
+      gaOptOutNotice = null;
+    }
+  }
 }
 
 function showLoadError(message, reason) {
@@ -415,7 +481,7 @@ window.initMap = function () {
     const nowSaved = toggleSaved(currentDestination.type, currentDestination.placeid);
     updateSaveBtnDisplay();
     trackEvent("save_place", {
-      place_type: currentDestination.type,
+      place_type: currentDestination.kind,
       place_id:   currentDestination.placeid,
       saved:      nowSaved ? 1 : 0
     });
@@ -475,7 +541,7 @@ window.initMap = function () {
       : `https://www.google.com/maps/dir/?api=1&destination=${destName}&destination_place_id=${destPlaceId}&travelmode=transit`;
 
     trackEvent("route_click", {
-      place_type: currentDestination.type,
+      place_type: currentDestination.kind,
       place_id:   currentDestination.placeid,
       place_name: currentDestination.name,
       has_origin: originData ? 1 : 0
@@ -490,6 +556,23 @@ window.initMap = function () {
   const searchClearBtn = document.getElementById("searchClearBtn");
   let searchDebounceTimer = null; // 入力デバウンス用
   let isComposing = false;        // IME変換中フラグ
+
+  /* ── カードを「どこから開いたか」（view_place の entry） ──
+     map=ピンを直接タップ／search=検索結果のピンをタップ／list=リスト表示から／
+     saved=お気に入りから／deeplink=?shop= のURLから */
+  let viewEntry = "map";
+  function currentEntry() {
+    if (viewEntry !== "map") return viewEntry;
+    return searchInput.value.trim() ? "search" : "map";
+  }
+  function openMarkerWithEntry(marker, entry) {
+    viewEntry = entry;
+    try {
+      google.maps.event.trigger(marker, "click");
+    } finally {
+      viewEntry = "map";
+    }
+  }
 
   function updateClearBtn() {
     searchClearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
@@ -540,7 +623,8 @@ window.initMap = function () {
       trackEvent("view_place", {
         place_type: "stadium",
         place_id:   stadium.placeid,
-        place_name: stadium.name
+        place_name: stadium.name,
+        entry:      currentEntry()
       });
       const displayName = (stadium.subname && stadium.subname.trim())
         ? stadium.subname : stadium.name;
@@ -587,6 +671,7 @@ window.initMap = function () {
 
       currentDestination = {
         type: "stadiums",
+        kind: "stadium", // 計測用の種別（view_place の place_type と同じ値）
         placeid: stadium.placeid,
         name: displayName,
         lat: Number(stadium.lat),
@@ -688,7 +773,8 @@ window.initMap = function () {
       trackEvent("view_place", {
         place_type: isSupporter ? "supporter" : "general",
         place_id:   shop.placeid,
-        place_name: shop.name
+        place_name: shop.name,
+        entry:      currentEntry()
       });
       document.getElementById("shopName").innerText = shop.name;
       const teamLine = (isSupporter && shop.team)
@@ -734,6 +820,7 @@ window.initMap = function () {
 
       currentDestination = {
         type: "shops",
+        kind: isSupporter ? "supporter" : "general", // 計測用の種別（view_place の place_type と同じ値）
         placeid: shop.placeid,
         name: shop.name,
         lat: Number(shop.lat),
@@ -1006,7 +1093,7 @@ window.initMap = function () {
       : stadiumMarkers.find(m => m.stadiumData && m.stadiumData.placeid === placeid);
   }
 
-  function openSavedPlace(type, placeid) {
+  function openSavedPlace(type, placeid, entry) {
     const data = type === "shops"
       ? allShops.find(s => s.placeid === placeid)
       : allStadiums.find(s => s.placeid === placeid);
@@ -1039,7 +1126,7 @@ window.initMap = function () {
     }
 
     if (marker) {
-      google.maps.event.trigger(marker, "click");
+      openMarkerWithEntry(marker, entry || "saved");
     } else {
       showToast("この場所は現在表示できません。");
     }
@@ -1061,7 +1148,7 @@ window.initMap = function () {
       return;
     }
 
-    openSavedPlace("shops", id);
+    openSavedPlace("shops", id, "deeplink");
     const opened = !!currentDestination && currentDestination.placeid === id;
     trackEvent("deeplink_open", { place_id: id, found: opened ? 1 : 0 });
     if (!opened) syncUrlToShop(null); // 非公開などで開けなかった場合
@@ -1102,6 +1189,7 @@ window.initMap = function () {
     if (!currentDestination || currentDestination.type !== "shops") return;
     const url = buildShopUrl(currentDestination.placeid);
     trackEvent("copy_link", {
+      place_type: currentDestination.kind,
       place_id:   currentDestination.placeid,
       place_name: currentDestination.name
     });
@@ -1250,7 +1338,7 @@ window.initMap = function () {
         listScreen.style.display = "none";
         map.setCenter(item.marker.getPosition());
         map.setZoom(15);
-        google.maps.event.trigger(item.marker, "click");
+        openMarkerWithEntry(item.marker, "list");
       });
 
       listViewList.appendChild(row);
@@ -1355,7 +1443,7 @@ window.initMap = function () {
   function hideLoadingOverlayIfReady() {
     if (lastShopsSnapshotAt > 0 && lastStadiumsSnapshotAt > 0) {
       hideLoadingOverlay();
-      hideToast(); // 遅れてデータが届いた場合は、読み込み失敗の案内を消す
+      hideToast("load_error"); // 遅れてデータが届いた場合は、読み込み失敗の案内だけを消す
       openPendingDeepLink();
     }
   }
@@ -1527,7 +1615,7 @@ window.initMap = function () {
     hideLoadingOverlay();
     // データが届いていない場合は、空の地図のままにせず案内を出す
     if (lastShopsSnapshotAt === 0 || lastStadiumsSnapshotAt === 0) {
-      showToast("店舗データを読み込めませんでした。右下の再読み込みボタンをお試しください。", 8000);
+      showToast("店舗データを読み込めませんでした。右下の再読み込みボタンをお試しください。", 8000, "load_error");
       trackEvent("load_error", { reason: "data_timeout" });
     }
   }, 12000);
