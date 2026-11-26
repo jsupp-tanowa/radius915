@@ -174,7 +174,7 @@ button {
    と同じだけオフセットすることで、見た目上は地図の右上角に配置する */
 .zoom-control-area {
   position: absolute;
-  top: calc(160px + env(safe-area-inset-top, 0px));
+  top: calc(112px + env(safe-area-inset-top, 0px) + 10px);
   right: 10px;
   z-index: 999;
   display: flex;
@@ -331,7 +331,6 @@ html.is-standalone .tab-bar::after {
 /* ※地図とタブバーの間の隙間を緑色で埋める対応は、Google著作権表示が
    隠れる原因になったため撤去済み（今後は#map側の余白調整のみで対応）。 */
 .tab-item {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -377,9 +376,18 @@ html.is-standalone .tab-bar::after {
   transition: .3s;
 }
 
-/* ヘッダー（取っ手・閉じるボタン・店名）は常に固定表示 */
+/* ヘッダー（店名）は常に固定表示。
+   下方向スワイプ（PCはドラッグ）でカードを閉じる操作の受け口になる。
+   touch-action:none でブラウザ標準のスクロール/引っ張り更新と競合しないようにする。 */
 .card-header {
   flex-shrink: 0;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.card-header:active {
+  cursor: grabbing;
 }
 
 /* ② 店名を除く下部エリアはカード内スクロールを可能にする */
@@ -390,6 +398,7 @@ html.is-standalone .tab-bar::after {
   padding-bottom: 20px;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 /* ホーム画面起動（スタンドアロン）時のみ：
@@ -406,10 +415,6 @@ html.is-standalone .bottom-sheet {
   font-weight: 900;
   color: #222;
   line-height: 26px;
-  /* 拡大した閉じる（×）ボタンと1行目の文字が重ならないよう、
-     全角1文字分（フォントサイズ相当の26px）だけ右側の折り返し幅を狭める */
-  padding-right: 26px;
-  box-sizing: border-box;
 }
 
 .bottom-info {
@@ -441,46 +446,23 @@ html.is-standalone .bottom-sheet {
 }
 
 /* 周辺表示ボタン */
-/* スタジアムカードの主ボタン「周辺のお店を見る」
-   カード内で最も目立つ操作（緑の塗り・幅いっぱい）。「ここに行く」「お気に入り」より上に置く */
-.show-area-wrap {
-  margin-top: 12px;
-}
-
 .show-area-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: 13px 14px;
-  font-size: 15px;
+  gap: 6px;
+  width: 65%;
+  margin: 10px auto 0;
+  padding: 8px 12px;
+  font-size: 12px;
   font-family: "M PLUS 1p", sans-serif;
   font-weight: 700;
-  background: #2e7d32;
-  color: #fff;
-  border: none;
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1.5px solid #a5d6a7;
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.25);
-  cursor: pointer;
-}
-
-/* 圏内に掲載店がないとき：押しても何も出ない行き止まりを避けるため、押せない状態にする */
-.show-area-btn:disabled {
-  background: #e6e9e6;
-  color: #6b736b;
   box-shadow: none;
-  cursor: default;
-}
-
-.show-area-caption {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: center;
-  font-family: "M PLUS 1p", sans-serif;
-  color: #555;
+  cursor: pointer;
 }
 
 .close-btn {
@@ -501,16 +483,6 @@ html.is-standalone .bottom-sheet {
   border-radius: 50%;
   color: #888;
   z-index: 1000;
-}
-
-/* ② スワイプ開閉ジェスチャーを廃止したため、カード上部の閉じる
-   ボタンをやや目立つデザインに変更する */
-.card-close-btn {
-  width: 30px;
-  height: 30px;
-  font-size: 18px;
-  background: #f0f0f0;
-  color: #555;
 }
 
 .shop-image-gallery {
@@ -931,324 +903,4 @@ html.is-standalone .bottom-sheet {
 /* お気に入りの星アイコン：未保存はアウトライン、保存済みは塗りに切替 */
 .icon-star-filled {
   fill: currentColor;
-}
-
-/* ── 区分バッジ（店舗カード見出し上）──
-   ドットの色は地図ピンの色（歓迎店=青／一般店舗=赤）に合わせている */
-.shop-type-badge {
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 4px;
-  padding: 2px 10px 2px 8px;
-  border-radius: 999px;
-  background: #f1f3f1;
-  color: #444;
-  font-family: "M PLUS 1p", sans-serif;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-.shop-type-badge .type-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.type-supporter .type-dot { background: #1a73e8; }
-.type-general   .type-dot { background: #e53935; }
-.type-stadium   .type-dot { background: #2e7d32; }
-
-/* ── 読み込み失敗時の案内（ローディング画面の再利用） ── */
-.loading-overlay.is-error .loading-ball-area {
-  display: none;
-}
-
-.loading-overlay.is-error .loading-text {
-  padding: 0 28px;
-  text-align: center;
-  line-height: 1.7;
-}
-
-.loading-retry-btn {
-  font-size: 15px;
-  padding: 10px 26px;
-  color: #1b5e20;
-  border: 1px solid #1b5e20;
-  background: #fff;
-}
-
-/* ── トースト（画面下部の短いお知らせ） ── */
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%) translateY(10px);
-  max-width: calc(100% - 40px);
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(33, 33, 33, .92);
-  color: #fff;
-  font-family: "M PLUS 1p", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  z-index: 2500;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .25s ease, transform .25s ease;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* ── 検索欄：プレースホルダーが収まらない端末では「…」で省略する ── */
-.search-bar-fixed input {
-  text-overflow: ellipsis;
-}
-
-.search-bar-fixed input::placeholder {
-  text-overflow: ellipsis;
-}
-
-/* ── 店舗リンクのコピーボタン（カード内・お気に入りの隣） ── */
-.card-action-row-secondary {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.copy-link-btn {
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 13px;
-  padding: 8px 12px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-family: "M PLUS 1p", sans-serif;
-  user-select: none;
-  box-shadow: none;
-  line-height: 1;
-  white-space: nowrap;
-  background: #e8f5e9;
-  color: #1b5e20;
-  border: 1px solid #a5d6a7;
-}
-
-/* ── 初回バナー（検索バーの下） ──
-   z-index は店舗カード・検索バー(999)より低くし、カードを開いたときはカードが手前に来る */
-.intro-banner {
-  position: absolute;
-  top: calc(160px + env(safe-area-inset-top, 0px));
-  left: 10px;
-  right: 54px;
-  z-index: 998;
-  box-sizing: border-box;
-  padding: 10px 44px 10px 14px;
-  background: #fff;
-  border: 1px solid #c8e6c9;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.18);
-  font-family: "M PLUS 1p", sans-serif;
-  color: #1f2a1f;
-}
-
-.intro-lead {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1b5e20;
-  line-height: 1.4;
-}
-
-.intro-legend {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.intro-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 5px;
-  border-radius: 50%;
-  vertical-align: -1px;
-}
-
-.intro-dot-gap {
-  margin-left: 14px;
-}
-
-.dot-blue { background: #1a73e8; }
-.dot-red  { background: #e53935; }
-
-.intro-note {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #555;
-}
-
-.intro-more-btn {
-  margin: 0 0 0 6px;
-  padding: 4px 6px;
-  font-size: 12px;
-  font-family: "M PLUS 1p", sans-serif;
-  font-weight: 700;
-  color: #1b5e20;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  box-shadow: none;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.intro-close-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  font-size: 18px;
-  line-height: 36px;
-  text-align: center;
-  color: #666;
-  background: none;
-  border: none;
-  border-radius: 50%;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-/* ── フィルターチップ（検索バーの下） ──
-   360px幅の端末でも3つが収まるよう、アイコンは付けず、状態は塗りと色で示す。
-   それでも収まらない場合（文字サイズ拡大など）は横スクロールする。 */
-.filter-chips {
-  position: absolute;
-  top: calc(112px + env(safe-area-inset-top, 0px));
-  left: 10px;
-  right: 10px;
-  z-index: 998;
-  display: flex;
-  gap: 5px;
-  padding: 2px 2px 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.filter-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.chip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid #388e3c;
-  border-radius: 17px;
-  background: #fff;
-  color: #1f2a1f;
-  font-family: "M PLUS 1p", sans-serif;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(0,0,0,.2);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* サポーター歓迎店：常に表示。切り替えられないことが伝わるよう、薄い青の塗りにする */
-.chip-supporter {
-  border-color: #1a73e8;
-  background: #e8f0fe;
-}
-
-.chip-count {
-  color: #1a73e8;
-}
-
-.chip-count:empty {
-  display: none;
-}
-
-.chip-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.chip-dot-square {
-  border-radius: 2px;
-}
-
-.dot-green { background: #2e7d32; }
-
-/* OFF：灰色の地・薄い文字・薄いドット */
-.chip.off {
-  border-color: #b9c0b9;
-  background: #e6e9e6;
-  color: #6b736b;
-  box-shadow: none;
-}
-
-.chip.off .chip-dot {
-  opacity: .4;
-}
-
-/* ── 検索欄：type="search" の標準の×ボタンは隠し、独自の×ボタンを使う ── */
-.search-bar-fixed input[type="search"]::-webkit-search-cancel-button,
-.search-bar-fixed input[type="search"]::-webkit-search-decoration,
-.search-bar-fixed input[type="search"]::-webkit-search-results-button,
-.search-bar-fixed input[type="search"]::-webkit-search-results-decoration {
-  -webkit-appearance: none;
-  appearance: none;
-  display: none;
-}
-
-/* ── 検索結果の件数表示（チップ行の下）──
-   右側はズームボタン（幅約34px）を避けて空ける */
-.search-status {
-  position: absolute;
-  top: calc(158px + env(safe-area-inset-top, 0px));
-  left: 10px;
-  right: 54px;
-  z-index: 998;
-  box-sizing: border-box;
-  padding: 8px 12px;
-  background: #fff;
-  border: 1px solid #c8e6c9;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.2);
-  font-family: "M PLUS 1p", sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.5;
-  color: #1f2a1f;
-}
-
-.search-status.is-empty {
-  background: #fff8e1;
-  border-color: #f0d98c;
-}
-
-.search-status .ss-note {
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 400;
-  color: #555;
-}
-
-/* 検索中は、件数表示と重なる初回バナーを一時的に隠す（閉じた扱いにはしない） */
-body.is-searching .intro-banner {
-  display: none !important;
 }
