@@ -380,7 +380,12 @@ html.is-standalone .tab-bar::after {
    下方向スワイプ（PCはドラッグ）でカードを閉じる操作の受け口になる。
    touch-action:none でブラウザ標準のスクロール/引っ張り更新と競合しないようにする。 */
 .card-header {
+  position: relative;
   flex-shrink: 0;
+  /* カード上部の余白(24px)までヘッダーの操作範囲に含め、バー周辺もつかめるようにする。
+     （負のmarginと同じ値のpaddingで、見た目のレイアウトは変えない） */
+  margin-top: -24px;
+  padding-top: 24px;
   touch-action: none;
   cursor: grab;
   user-select: none;
@@ -388,6 +393,19 @@ html.is-standalone .tab-bar::after {
 }
 .card-header:active {
   cursor: grabbing;
+}
+
+/* カード上部の「スワイプできます」を示すバー（取っ手） */
+.card-header::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 5px;
+  border-radius: 3px;
+  background: #cfcfcf;
 }
 
 /* ② 店名を除く下部エリアはカード内スクロールを可能にする */
