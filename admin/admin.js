@@ -121,12 +121,41 @@ async function loadShopList() {
   }
 }
 
+/* ── 一覧の並び順（都道府県順：北海道→沖縄、同一都道府県内は店名の五十音順） ── */
+const PREFECTURES = [
+  "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+  "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+  "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+  "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+  "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+  "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+];
+
+// 都道府県名の先頭一致で順位を返す（「神奈川」のように県が抜けていても一致させる）。
+// 未入力・判別不能なものは最後尾に回す。
+function prefectureRank(value) {
+  const v = (value || "").trim();
+  if (!v) return PREFECTURES.length;
+  const idx = PREFECTURES.findIndex(p =>
+    v.startsWith(p) || v.startsWith(p.replace(/[都道府県]$/, ""))
+  );
+  return idx === -1 ? PREFECTURES.length : idx;
+}
+
+function compareShops(a, b) {
+  const diff = prefectureRank(a.prefecture) - prefectureRank(b.prefecture);
+  if (diff !== 0) return diff;
+  return (a.name || "").localeCompare(b.name || "", "ja");
+}
+
 function renderShopTable() {
   shopTableBody.innerHTML = "";
 
-  const visibleShops = currentFilter === "unpublished"
+  const filteredShops = currentFilter === "unpublished"
     ? shops.filter(shop => !shop.published)
     : shops;
+  const visibleShops = [...filteredShops].sort(compareShops);
 
   listEmpty.style.display = visibleShops.length === 0 ? "block" : "none";
   listEmpty.textContent = currentFilter === "unpublished"
