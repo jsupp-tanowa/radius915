@@ -489,15 +489,202 @@ window.initMap = function () {
 
   /* ── カード ── */
   function openCard() {
+    resetCardDrag(); // 閉じるアニメーション中に別のカードを開いた場合に備える
     document.getElementById("shopCard").style.display = "flex";
   }
   function closeCard() {
     const card = document.getElementById("shopCard");
     card.style.display = "none";
+    resetCardDrag();
     syncUrlToShop(null);
     setGoHereBtnEnabled(false);
     currentDestination = null;
     if (setOriginChk) setOriginChk.checked = false;
+  }
+
+  /* ── カードの閉じ方：下方向のスワイプ（×ボタンの代わり） ──
+     ・つかめる範囲：カード上端（バー周辺の余白）〜店名の下端。カード本文は、スクロールが一番上のときだけ
+     ・閉じる条件：下へ100px以上動かす、または素早く払う（速度0.5px/ms以上・24px以上）。それ未満は元の位置へ戻る
+     ・横方向の動き（画像ギャラリーの横スクロール）は、スワイプとして扱わない
+     ・PC：店名の部分（上端〜店名の下端）を下へドラッグ、またはEscキー
+     ・キーボード：バーにフォーカスして Enter／Space */
+  const CARD_CLOSE_DISTANCE = 100;  // px：これ以上動かしたら閉じる
+  const CARD_CLOSE_VELOCITY = 0.5;  // px/ms：これ以上の速さで払ったら閉じる
+  const CARD_CLOSE_MIN_FLICK = 24;  // px：払いで閉じるときの、最低限の移動量
+  const CARD_DRAG_SLOP = 8;         // px：スワイプかどうかを判定するまでの動き
+
+  function resetCardDrag() {
+    clearTimeout(cardCloseTimer);
+    cardCloseTimer = null;
+    cardDragState = null;
+    const card = document.getElementById("shopCard");
+    card.classList.remove("is-dragging");
+    card.style.transform = "";
+    card.style.transition = "";
+  }
+
+  function setupCardGestures() {
+    const card       = document.getElementById("shopCard");
+    const header     = card.querySelector(".card-header");
+    const scrollArea = card.querySelector(".card-scroll-area");
+    const grabber    = document.getElementById("cardGrabber");
+
+    // つかめる範囲か（カード上端〜店名の下端）
+    const inGrabZone = clientY => clientY <= header.getBoundingClientRect().bottom;
+
+    function begin(x, y, target, type) {
+      if (cardCloseTimer) return false; // 閉じるアニメーション中
+      let zone = null;
+      if (inGrabZone(y)) zone = "header";
+      else if (scrollArea.contains(target)) zone = "body";
+      if (!zone) return false;
+      cardDragState = {
+        zone, type,
+        startX: x, startY: y,
+        startScrollTop: scrollArea.scrollTop,
+        dragging: false, rejected: false,
+        samples: [{ y, t: performance.now() }]
+      };
+      return true;
+    }
+
+    function move(x, y, e) {
+      const s = cardDragState;
+      if (!s || s.rejected) return;
+      const dx = x - s.startX;
+      const dy = y - s.startY;
+
+      if (!s.dragging) {
+        // 横方向（画像ギャラリーの横スクロールなど）・上方向は、スワイプとして扱わない
+        if (Math.abs(dx) > CARD_DRAG_SLOP && Math.abs(dx) > Math.abs(dy)) { s.rejected = true; return; }
+        if (dy < -CARD_DRAG_SLOP) { s.rejected = true; return; }
+        if (dy <= CARD_DRAG_SLOP) return;
+        // 下方向に動き始めた。本文は、一番上までスクロールされているときだけスワイプ扱い
+        if (s.zone === "body" && (s.startScrollTop > 0 || scrollArea.scrollTop > 0)) { s.rejected = true; return; }
+        s.dragging = true;
+        card.classList.add("is-dragging");
+        card.style.transition = "none"; // ドラッグ中は指に追従させる（標準の .3s のアニメーションを止める）
+      }
+
+      if (e.cancelable) e.preventDefault();
+      card.style.transform = `translateY(${Math.max(0, dy)}px)`;
+
+      // 速度の計算用に、直近100msの位置だけ保持する
+      const now = performance.now();
+      s.samples.push({ y, t: now });
+      while (s.samples.length > 2 && s.samples[0].t < now - 100) s.samples.shift();
+    }
+
+    function springBack() {
+      card.classList.remove("is-dragging");
+      card.style.transition = "transform .2s ease-out";
+      card.style.transform = "translateY(0)";
+      clearTimeout(cardCloseTimer);
+      cardCloseTimer = setTimeout(() => {
+        cardCloseTimer = null;
+        card.style.transition = "";
+        card.style.transform = "";
+      }, 220);
+    }
+
+    function animateClose() {
+      card.classList.remove("is-dragging");
+      card.style.transition = "transform .18s ease-out";
+      card.style.transform = `translateY(${card.offsetHeight + 80}px)`;
+      clearTimeout(cardCloseTimer);
+      cardCloseTimer = setTimeout(() => {
+        cardCloseTimer = null;
+        closeCard();
+      }, 190);
+    }
+
+    function end(y, cancelled) {
+      const s = cardDragState;
+      cardDragState = null;
+      if (!s || !s.dragging) return;
+      const dy = Math.max(0, y - s.startY);
+      // 速さは「指を離した時点」を基準に、直近100msで計算する
+      // （素早く動かしたあと、指を止めたまま置いて離した場合は「払い」とみなさない）
+      const now = performance.now();
+      s.samples.push({ y, t: now });
+      while (s.samples.length > 2 && s.samples[0].t < now - 100) s.samples.shift();
+      const first = s.samples[0];
+      const last  = s.samples[s.samples.length - 1];
+      const speed = (last.y - first.y) / Math.max(1, last.t - first.t);
+      const shouldClose = !cancelled &&
+        (dy >= CARD_CLOSE_DISTANCE || (speed >= CARD_CLOSE_VELOCITY && dy >= CARD_CLOSE_MIN_FLICK));
+      if (shouldClose) animateClose(); else springBack();
+    }
+
+    // ── タッチ（スマホ・タブレット）：上端〜店名の下端、および本文の先頭（スクロールが一番上のとき） ──
+    card.addEventListener("touchstart", e => {
+      if (e.touches.length !== 1) { cardDragState = null; return; }
+      const t = e.touches[0];
+      begin(t.clientX, t.clientY, e.target, "touch");
+    }, { passive: true });
+
+    // 縦のスワイプと確定したあとだけ preventDefault するため、passive: false にする
+    card.addEventListener("touchmove", e => {
+      if (!cardDragState || cardDragState.type !== "touch") return;
+      const t = e.touches[0];
+      move(t.clientX, t.clientY, e);
+    }, { passive: false });
+
+    card.addEventListener("touchend", e => {
+      if (!cardDragState || cardDragState.type !== "touch") return;
+      end(e.changedTouches[0].clientY, false);
+    });
+
+    card.addEventListener("touchcancel", () => {
+      if (!cardDragState || cardDragState.type !== "touch") return;
+      end(cardDragState.startY, true);
+    });
+
+    // ── マウス・ペン（PC）：上端〜店名の下端のみ。本文はテキスト選択や画像の操作と干渉するため対象外 ──
+    card.addEventListener("pointerdown", e => {
+      if (e.pointerType === "touch" || e.button !== 0) return;
+      if (!inGrabZone(e.clientY)) return;
+      if (begin(e.clientX, e.clientY, e.target, "mouse")) {
+        try { card.setPointerCapture(e.pointerId); } catch (err) { /* 非対応環境では無視 */ }
+      }
+    });
+
+    card.addEventListener("pointermove", e => {
+      if (!cardDragState || cardDragState.type !== "mouse") return;
+      move(e.clientX, e.clientY, e);
+    });
+
+    card.addEventListener("pointerup", e => {
+      if (!cardDragState || cardDragState.type !== "mouse") return;
+      try { card.releasePointerCapture(e.pointerId); } catch (err) { /* 無視 */ }
+      end(e.clientY, false);
+    });
+
+    card.addEventListener("pointercancel", () => {
+      if (!cardDragState || cardDragState.type !== "mouse") return;
+      end(cardDragState.startY, true);
+    });
+
+    // ── Escキー（PC）：カードが開いているときに閉じる ──
+    // 使い方・リスト・お気に入りの画面が前面に出ているときは、背後のカードは閉じない
+    document.addEventListener("keydown", e => {
+      if (e.key !== "Escape" || e.isComposing) return;
+      if (card.style.display === "none") return;
+      const overlayOpen = ["helpScreen", "listScreen", "savedScreen"].some(id => {
+        const el = document.getElementById(id);
+        return el && el.style.display && el.style.display !== "none";
+      });
+      if (overlayOpen) return;
+      closeCard();
+    });
+
+    // ── キーボード：バーにフォーカスして Enter／Space ──
+    grabber.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        closeCard();
+      }
+    });
   }
 
   /* ① 「ここに行く」ボタン有効/無効（旧・経路検索タブと同一機能） */
@@ -573,6 +760,10 @@ window.initMap = function () {
       viewEntry = "map";
     }
   }
+
+  // カードのスワイプ操作の状態（setupCardGestures で使用）
+  let cardDragState = null;  // ドラッグ中の状態。なければ null
+  let cardCloseTimer = null; // 閉じるアニメーション中のタイマー
 
   function updateClearBtn() {
     searchClearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
@@ -1588,7 +1779,7 @@ window.initMap = function () {
   }
 
   /* ── カード閉じる ── */
-  document.getElementById("closeCardBtn").addEventListener("click", closeCard);
+  setupCardGestures();
 
   /* ── 初回ロード ── */
   loadShops();
