@@ -406,10 +406,6 @@ html.is-standalone .bottom-sheet {
   font-weight: 900;
   color: #222;
   line-height: 26px;
-  /* 拡大した閉じる（×）ボタンと1行目の文字が重ならないよう、
-     全角1文字分（フォントサイズ相当の26px）だけ右側の折り返し幅を狭める */
-  padding-right: 26px;
-  box-sizing: border-box;
 }
 
 .bottom-info {
@@ -505,14 +501,6 @@ html.is-standalone .bottom-sheet {
 
 /* ② スワイプ開閉ジェスチャーを廃止したため、カード上部の閉じる
    ボタンをやや目立つデザインに変更する */
-.card-close-btn {
-  width: 30px;
-  height: 30px;
-  font-size: 18px;
-  background: #f0f0f0;
-  color: #555;
-}
-
 .shop-image-gallery {
   display: flex;
   gap: 8px;
@@ -1251,4 +1239,44 @@ html.is-standalone .bottom-sheet {
 /* 検索中は、件数表示と重なる初回バナーを一時的に隠す（閉じた扱いにはしない） */
 body.is-searching .intro-banner {
   display: none !important;
+}
+
+/* ── 店舗・スタジアムカード：下方向スワイプで閉じる ──
+   つかめる範囲は、カード上端（バー周辺の余白）〜店名の下端。
+   ここはブラウザ標準のスクロールを無効にして、ドラッグ操作を確実に受け取る。
+   本文（.card-scroll-area）は従来どおり縦スクロールできる。 */
+.bottom-sheet {
+  touch-action: none;
+  cursor: grab;
+}
+
+.bottom-sheet.is-dragging {
+  cursor: grabbing;
+}
+
+.card-header {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.card-scroll-area {
+  cursor: auto;
+  overscroll-behavior: contain; /* 本文のスクロールが端に達しても、背後（地図・ページ）に伝えない */
+}
+
+/* スワイプできることを示す灰色のバー（幅46px・高さ4px・上端から9px・中央） */
+.card-grabber {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 46px;
+  height: 4px;
+  margin-left: -23px;
+  background: #cfcfcf;
+  border-radius: 2px;
+}
+
+.card-grabber:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 4px;
 }

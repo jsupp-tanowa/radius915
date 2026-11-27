@@ -214,8 +214,9 @@
 
   <!-- 店舗カード -->
   <div id="shopCard" class="bottom-sheet" style="display:none;">
+    <!-- 下方向にスワイプして閉じるためのバー。キーボード操作（Enter／Space）でも閉じられる -->
+    <div id="cardGrabber" class="card-grabber" role="button" tabindex="0" aria-label="カードを閉じる（下にスワイプ）"></div>
     <div class="card-header">
-      <button id="closeCardBtn" class="close-btn card-close-btn" aria-label="閉じる">×</button>
       <div id="shopTypeBadge" class="shop-type-badge" style="display:none;"></div>
       <div id="shopName" class="bottom-title">店名</div>
     </div>
@@ -345,7 +346,7 @@
       </section>
       <section class="help-section">
         <h3>⑥ 店舗・スタジアムカード</h3>
-        <p>ピンをタップすると詳細カードが表示されます。店名以外の部分はカード内でスクロールして詳細情報を確認できます。</p>
+        <p>ピンをタップすると詳細カードが表示されます。店名以外の部分はカード内でスクロールして詳細情報を確認できます。<br>カードは、下方向にスワイプして閉じられます（PCは店名を下へドラッグ、またはEscキー）。</p>
         <ul>
           <li><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-mappin"></use></svg>出発地：経路検索の出発地点として設定</li>
           <li><svg class="icon-inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-navigation"></use></svg>ここに行く：Googleマップに遷移し経路検索を実行します。（出発地を指定していない場合は、現在地が出発地となります。）</li>
