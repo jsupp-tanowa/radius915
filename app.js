@@ -11,8 +11,238 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-// ① Google Analytics（GA4）計測を有効化
-firebase.analytics();
+/* ── 運営者自身のアクセスの計測除外（?ga=off / ?ga=on） ──
+   運営者の確認作業が分析データに混ざらないよう、ブラウザごとに計測を止められる。
+   ・ https://supportanowa.web.app/?ga=off を開くと、そのブラウザの計測を停止（localStorageに記録）
+   ・ ?ga=on で再開
+   ・ 停止中は firebase.analytics() 自体を初期化しないため、page_view などの自動イベントも送信されない
+   ※ブラウザ／アプリごとに必要（Safari・Chrome・Xアプリ内ブラウザ・PCなど）。
+   ※Safariは、そのサイトを7日間操作しないと記録が消えることがある。 */
+const GA_OPTOUT_KEY = "supportanowa_ga_optout";
+let analyticsOptedOut = false;
+let gaOptOutNotice = null; // 切り替えをお知らせするメッセージ（ローディングが閉じたあとにトースト表示）
+
+(function applyAnalyticsOptOut() {
+  let params = null;
+  let ga = null;
+  try {
+    params = new URLSearchParams(location.search);
+    ga = params.get("ga");
+  } catch (e) { /* 取得できない場合は通常どおり計測する */ }
+
+  const readOptOut = () => {
+    try { return localStorage.getItem(GA_OPTOUT_KEY) === "1"; } catch (e) { return false; }
+  };
+  const writeOptOut = on => {
+    try {
+      if (on) localStorage.setItem(GA_OPTOUT_KEY, "1");
+      else localStorage.removeItem(GA_OPTOUT_KEY);
+      return true;
+    } catch (e) { return false; }
+  };
+
+  if (ga === "off") {
+    const saved = writeOptOut(true);
+    analyticsOptedOut = true; // 保存できなくても、今回の閲覧は計測しない
+    gaOptOutNotice = saved
+      ? "このブラウザからのアクセスは、計測しないようにしました。"
+      : "このブラウザでは設定を保存できないため、今回の閲覧のみ計測しません。";
+  } else if (ga === "on") {
+    writeOptOut(false);
+    analyticsOptedOut = false;
+    gaOptOutNotice = "このブラウザの計測を再開しました。";
+  } else {
+    analyticsOptedOut = readOptOut();
+  }
+
+  // URLから ga パラメータだけを取り除く（shop や utm_* などは残す）
+  if (params && (ga === "off" || ga === "on")) {
+    try {
+      params.delete("ga");
+      const qs = params.toString();
+      history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+    } catch (e) { /* URLの更新に失敗しても動作には影響させない */ }
+  }
+})();
+
+// ① Google Analytics（GA4）計測を有効化（計測除外中は初期化しない）
+const analytics = analyticsOptedOut ? null : firebase.analytics();
+
+/* ── GA4 カスタムイベント送信 ──
+   ・ローカル確認(localhost)では送信せずコンソールに出力し、本番の計測を汚さない
+   ・広告ブロッカー等で計測が使えなくても、アプリの動作に影響させない
+   ・文字列パラメータはGA4の上限(100文字)に切り詰める */
+function trackEvent(name, params) {
+  if (analyticsOptedOut || !analytics) return; // 計測除外中（?ga=off）
+  const safe = {};
+  Object.keys(params || {}).forEach(k => {
+    const v = params[k];
+    safe[k] = typeof v === "string" ? v.slice(0, 100) : v;
+  });
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+    console.debug("[GA4 event]", name, safe);
+    return;
+  }
+  try {
+    analytics.logEvent(name, safe);
+  } catch (e) { /* 計測の失敗はアプリの動作に影響させない */ }
+}
+
+/* ── HTML属性値用エスケープ（alt属性などに店名を入れるため） ── */
+function escapeAttr(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/* ── トースト（画面下部の短いお知らせ） ── */
+let toastTimer = null;
+let toastKind = null; // お知らせの種類（"load_error" など）。種類を指定して消すときに使う
+function showToast(message, ms, kind) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add("show");
+  toastKind = kind || null;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => hideToast(), ms || 4000);
+}
+// kind を指定した場合は、その種類のお知らせが出ているときだけ消す（他のお知らせを巻き込まない）
+function hideToast(kind) {
+  if (kind && toastKind !== kind) return;
+  const el = document.getElementById("toast");
+  if (el) el.classList.remove("show");
+  toastKind = null;
+}
+
+/* ── ローディング画面／読み込み失敗の案内 ──
+   Googleマップ自体の読み込み失敗（スクリプト不達・APIキー/リファラ拒否・通信不良）は
+   initMap が呼ばれないため、initMap の外で検知して案内する。 */
+const LOADING_DEFAULT_TEXT = "店舗情報を読み込み中...";
+
+function hideLoadingOverlay() {
+  const overlay = document.getElementById("loadingOverlay");
+  // エラー表示中は閉じない（案内を消さないため）
+  if (overlay && !overlay.classList.contains("is-error")) {
+    overlay.classList.add("hide");
+    if (gaOptOutNotice) {
+      showToast(gaOptOutNotice, 6000);
+      gaOptOutNotice = null;
+    }
+  }
+}
+
+function showLoadError(message, reason) {
+  const overlay = document.getElementById("loadingOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("hide");
+  overlay.classList.add("is-error");
+  const text = overlay.querySelector(".loading-text");
+  if (text) text.textContent = message;
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.style.display = "block";
+  trackEvent("load_error", { reason: reason || "unknown" });
+}
+
+function resetLoadingOverlay() {
+  const overlay = document.getElementById("loadingOverlay");
+  if (!overlay || !overlay.classList.contains("is-error")) return;
+  overlay.classList.remove("is-error");
+  const text = overlay.querySelector(".loading-text");
+  if (text) text.textContent = LOADING_DEFAULT_TEXT;
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.style.display = "none";
+}
+
+(function setupLoadErrorHandling() {
+  const retry = document.getElementById("loadingRetryBtn");
+  if (retry) retry.addEventListener("click", () => location.reload());
+
+  // APIキー／リファラ制限などでGoogleマップに拒否された場合にGoogle側から呼ばれる
+  window.gm_authFailure = function () {
+    showLoadError("地図を表示できませんでした。時間をおいて、もう一度お試しください。", "maps_auth");
+  };
+
+  // Googleマップ読み込みが一定時間たっても完了しない場合
+  setTimeout(() => {
+    if (!window.__mapInitialized) {
+      showLoadError("地図の読み込みに時間がかかっています。通信環境をご確認ください。", "maps_timeout");
+    }
+  }, 15000);
+})();
+
+/* ── 区分バッジ（店舗カード見出し上）──
+   サポーター歓迎店／一般店舗／スタジアムを、カードを開いた時点で判別できるようにする。 */
+function setTypeBadge(kind) {
+  const el = document.getElementById("shopTypeBadge");
+  if (!el) return;
+  const defs = {
+    supporter: { label: "サポーター歓迎店", cls: "type-supporter" },
+    general:   { label: "一般店舗",         cls: "type-general" },
+    stadium:   { label: "スタジアム",       cls: "type-stadium" }
+  };
+  const d = defs[kind];
+  if (!d) { el.style.display = "none"; return; }
+  el.className = "shop-type-badge " + d.cls;
+  el.innerHTML = `<span class="type-dot"></span>${d.label}`;
+  el.style.display = "inline-flex";
+}
+
+/* ── URL と開いている店舗カードの同期（店舗への直リンク） ──
+   ・店舗カードを開くと、URLが ?shop=<placeid> になる（アドレスバー／共有からリンクを取得できる）
+   ・カードを閉じる／スタジアムを開くと、元のURLに戻す
+   ・履歴は積まない（replaceState）ので「戻る」操作には影響しない */
+function buildShopUrl(placeid) {
+  return location.origin + location.pathname + "?shop=" + encodeURIComponent(placeid);
+}
+
+function syncUrlToShop(placeid) {
+  try {
+    // shop 以外のパラメータ（流入計測用の utm_* など）は消さずに残す
+    const params = new URLSearchParams(location.search);
+    if (placeid) {
+      params.set("shop", placeid);
+    } else if (params.has("shop")) {
+      params.delete("shop");
+    } else {
+      return;
+    }
+    const qs = params.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+  } catch (e) { /* URL更新に失敗しても、アプリの動作には影響させない */ }
+}
+
+// アクセス時のURLに ?shop= があれば、データ読み込み完了後に該当店舗を開く（openPendingDeepLink）
+let pendingDeepLinkShopId = (new URLSearchParams(location.search).get("shop") || "").trim() || null;
+
+/* ── 初回バナー ──
+   初めて訪れた人向けの一言説明。閉じる／「くわしく見る」で、次回から表示しない。 */
+(function setupIntroBanner() {
+  const KEY = "supportanowa_intro_seen";
+  const banner = document.getElementById("introBanner");
+  if (!banner) return;
+
+  let seen = false;
+  try { seen = localStorage.getItem(KEY) === "1"; } catch (e) { /* 読めない場合は表示する */ }
+  if (seen) return;
+
+  banner.style.display = "block";
+
+  function dismiss(action) {
+    banner.style.display = "none";
+    try { localStorage.setItem(KEY, "1"); } catch (e) { /* 保存できない場合は次回も表示される */ }
+    trackEvent("intro_banner", { action: action });
+  }
+
+  document.getElementById("introCloseBtn").addEventListener("click", () => dismiss("close"));
+  document.getElementById("introMoreBtn").addEventListener("click", () => {
+    dismiss("help");
+    const helpBtn = document.getElementById("helpBtn");
+    if (helpBtn) helpBtn.click();
+  });
+})();
 
 let map;
 let userLocation  = null;
@@ -49,13 +279,31 @@ function toKatakana(str) {
   return str.replace(/[\u3041-\u3096]/g, ch =>
     String.fromCharCode(ch.charCodeAt(0) + 0x60));
 }
+/* 検索用の正規化：全角/半角(NFKC)・大文字小文字・空白の揺れを吸収する */
+function normalizeText(str) {
+  return String(str).normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
 function normalizeKeyword(kw) {
-  const lower = kw.toLowerCase();
-  return [lower, toHiragana(lower), toKatakana(lower)];
+  const base = normalizeText(kw);
+  return [base, toHiragana(base), toKatakana(base)];
 }
 function matchField(field, variants) {
   if (!field) return false;
-  return variants.some(v => field.toLowerCase().includes(v));
+  const target = normalizeText(field);
+  return variants.some(v => v && target.includes(v));
+}
+
+/* 都道府県名の検索：先頭一致で、「都・道・府・県」の接尾辞は有無どちらでも可。
+   ・「京都」で「東京都」に誤ヒットしない（部分一致だと「東京都」にも含まれてしまうため）
+   ・「東京」「東京都」「大阪」「大阪府」など、どちらの書き方でも該当の都道府県にヒットする */
+function matchPrefecture(pref, variants) {
+  if (!pref) return false;
+  const strip = s => s.replace(/[都道府県]$/, "");
+  const target = strip(normalizeText(pref));
+  return variants.some(v => {
+    const k = strip(v);
+    return k && target.startsWith(k);
+  });
 }
 
 /* ── 2点間の距離（km）を計算（haversine公式） ──
@@ -127,6 +375,7 @@ function moveToCurrentLocation() {
     pos => {
       const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       userLocation = p;
+      trackEvent("locate", { result: "success" });
       map.setCenter(p);
       map.setZoom(11);
       if (currentMarker) currentMarker.setMap(null);
@@ -137,12 +386,23 @@ function moveToCurrentLocation() {
       // ①現在地取得時に出発地を自動セット
       setOrigin({ lat: p.lat, lng: p.lng, name: "現在地" });
     },
-    () => alert("位置情報の取得に失敗しました")
+    err => {
+      trackEvent("locate", { result: err.code === err.PERMISSION_DENIED ? "denied" : "error" });
+      if (err.code === err.PERMISSION_DENIED) {
+        alert("位置情報の利用が許可されていません。\nブラウザ（端末）の設定で許可すると利用できます。");
+      } else {
+        alert("位置情報を取得できませんでした。電波の良い場所でもう一度お試しください。");
+      }
+    },
+    { timeout: 10000, maximumAge: 60000 }
   );
 }
 
 /* 地図初期化 */
 window.initMap = function () {
+
+  window.__mapInitialized = true;
+  resetLoadingOverlay(); // 遅れて読み込めた場合は、読み込み失敗の案内を解除
 
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 34.7284, lng: 135.4814 },
@@ -218,28 +478,23 @@ window.initMap = function () {
 
   saveToggleBtn.addEventListener("click", () => {
     if (!currentDestination) return;
-    toggleSaved(currentDestination.type, currentDestination.placeid);
+    const nowSaved = toggleSaved(currentDestination.type, currentDestination.placeid);
     updateSaveBtnDisplay();
+    trackEvent("save_place", {
+      place_type: currentDestination.kind,
+      place_id:   currentDestination.placeid,
+      saved:      nowSaved ? 1 : 0
+    });
   });
 
   /* ── カード ── */
-  let cardCloseTimer = null; // スワイプで閉じるアニメーション用タイマー
-  function resetCardSwipeStyle() {
-    const card = document.getElementById("shopCard");
-    card.style.transform = "";
-    card.style.transition = "";
-  }
   function openCard() {
-    // 閉じるアニメーション中に別のピンが選ばれた場合に備え、タイマーと一時スタイルを解除する
-    clearTimeout(cardCloseTimer);
-    resetCardSwipeStyle();
     document.getElementById("shopCard").style.display = "flex";
   }
   function closeCard() {
     const card = document.getElementById("shopCard");
-    clearTimeout(cardCloseTimer);
     card.style.display = "none";
-    resetCardSwipeStyle();
+    syncUrlToShop(null);
     setGoHereBtnEnabled(false);
     currentDestination = null;
     if (setOriginChk) setOriginChk.checked = false;
@@ -285,6 +540,12 @@ window.initMap = function () {
       ? `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destName}&destination_place_id=${destPlaceId}&travelmode=transit`
       : `https://www.google.com/maps/dir/?api=1&destination=${destName}&destination_place_id=${destPlaceId}&travelmode=transit`;
 
+    trackEvent("route_click", {
+      place_type: currentDestination.kind,
+      place_id:   currentDestination.placeid,
+      place_name: currentDestination.name,
+      has_origin: originData ? 1 : 0
+    });
     openExternalMapLink(url);
   }
 
@@ -293,29 +554,55 @@ window.initMap = function () {
   /* ── 検索バークリア ── */
   const searchInput    = document.getElementById("searchInput");
   const searchClearBtn = document.getElementById("searchClearBtn");
+  let searchDebounceTimer = null; // 入力デバウンス用
+  let isComposing = false;        // IME変換中フラグ
+
+  /* ── カードを「どこから開いたか」（view_place の entry） ──
+     map=ピンを直接タップ／search=検索結果のピンをタップ／list=リスト表示から／
+     saved=お気に入りから／deeplink=?shop= のURLから */
+  let viewEntry = "map";
+  function currentEntry() {
+    if (viewEntry !== "map") return viewEntry;
+    return searchInput.value.trim() ? "search" : "map";
+  }
+  function openMarkerWithEntry(marker, entry) {
+    viewEntry = entry;
+    try {
+      google.maps.event.trigger(marker, "click");
+    } finally {
+      viewEntry = "map";
+    }
+  }
 
   function updateClearBtn() {
     searchClearBtn.style.display = searchInput.value.length > 0 ? "block" : "none";
   }
   searchClearBtn.addEventListener("click", clearSearch);
   function clearSearch() {
+    clearTimeout(searchDebounceTimer);
+    lastTrackedKeyword = "";
     searchInput.value = "";
     updateClearBtn();
     refreshShopMarkers();
     refreshStadiumMarkers();
   }
 
-  /* ── fitBounds（stadium検索用） ── */
-  function fitToMarkers(markers) {
-    if (markers.length === 0) return;
-    if (markers.length === 1) {
-      map.setCenter(markers[0].getPosition());
+  /* ── fitBounds（検索結果用） ──
+     positions: google.maps.LatLng の配列 / padding: 画面端の余白(px) */
+  function fitToPositions(positions, padding) {
+    if (positions.length === 0) return;
+    if (positions.length === 1) {
+      map.setCenter(positions[0]);
       map.setZoom(13);
       return;
     }
     const bounds = new google.maps.LatLngBounds();
-    markers.forEach(m => bounds.extend(m.getPosition()));
-    map.fitBounds(bounds);
+    positions.forEach(p => bounds.extend(p));
+    if (padding) {
+      map.fitBounds(bounds, padding);
+    } else {
+      map.fitBounds(bounds);
+    }
     google.maps.event.addListenerOnce(map, "bounds_changed", () => {
       if (map.getZoom() > 14) map.setZoom(14);
     });
@@ -332,6 +619,13 @@ window.initMap = function () {
 
     marker.addListener("click", () => {
       openCard();
+      setTypeBadge("stadium");
+      trackEvent("view_place", {
+        place_type: "stadium",
+        place_id:   stadium.placeid,
+        place_name: stadium.name,
+        entry:      currentEntry()
+      });
       const displayName = (stadium.subname && stadium.subname.trim())
         ? stadium.subname : stadium.name;
       document.getElementById("shopName").innerText = displayName;
@@ -347,15 +641,16 @@ window.initMap = function () {
       gallery.style.display = "none";
 
       document.querySelector(".detail-btn").onclick = () => {
+        trackEvent("gmaps_open", { place_type: "stadium", place_id: stadium.placeid, place_name: stadium.name });
         openExternalMapLink(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stadium.name)}&query_place_id=${stadium.placeid}`);
       };
 
       // ② 周辺表示ボタン
       const showAreaBtn = document.getElementById("showAreaBtn");
       showAreaBtn.onclick = () => {
+        trackEvent("show_area", { place_id: stadium.placeid, place_name: stadium.name });
         showGeneral = true;
-        const generalTab = document.getElementById("generalTab");
-        if (generalTab) generalTab.style.opacity = "1";
+        setChipState(generalChip, true);
         // ② 検索ボックスと検索結果をクリアしてから再描画
         //    （検索キーワードが残っていると店舗のcategory/team検索に
         //      ヒットせず、周辺の一般店舗や他スタジアムが表示されない不具合対策）
@@ -376,6 +671,7 @@ window.initMap = function () {
 
       currentDestination = {
         type: "stadiums",
+        kind: "stadium", // 計測用の種別（view_place の place_type と同じ値）
         placeid: stadium.placeid,
         name: displayName,
         lat: Number(stadium.lat),
@@ -385,13 +681,52 @@ window.initMap = function () {
       setOriginChk.checked = !!(originData && originData.placeid === stadium.placeid);
       updateRouteTabState();
       updateSaveBtnDisplay();
-      // ② スタジアムカードでは周辺表示ボタンを表示
-      document.getElementById("showAreaBtn").style.display = "block";
+      // ② スタジアムカードでは「周辺のお店を見る」（主ボタン）を表示し、圏内の件数を案内する
+      document.getElementById("showAreaWrap").style.display = "block";
+      updateShowAreaBlock(stadium);
+      // リンクのコピーは店舗カードのみ（スタジアムは直リンク対象外）
+      document.getElementById("copyLinkBtn").style.display = "none";
+      syncUrlToShop(null);
     });
 
     marker.stadiumData = stadium;
     stadiumMarkers.push(marker);
     return marker;
+  }
+
+  /* ── スタジアム周辺（stadium.radius km 以内）の掲載店舗数 ──
+     ・公開中の店舗が対象。verified=false の歓迎店は、一般店舗と同じ扱い（歓迎店の件数には含めない）
+     ・座標が欠けている店舗（距離がNaN）は数えない */
+  function countShopsNearStadium(stadium) {
+    const r   = Number(stadium.radius) || 3;
+    const lat = Number(stadium.lat);
+    const lng = Number(stadium.lng);
+    let total = 0;
+    let supporters = 0;
+    allShops.forEach(s => {
+      if (!s.published) return;
+      const d = distanceKm(lat, lng, Number(s.lat), Number(s.lng));
+      if (!(d <= r)) return;
+      total++;
+      if (!isEffectiveGeneral(s)) supporters++;
+    });
+    return { r, total, supporters };
+  }
+
+  /* ── 「周辺のお店を見る」ボタンと件数の案内（スタジアムカード） ──
+     圏内に掲載店がない場合は、ボタンを押せない状態にして、その旨を表示する */
+  function updateShowAreaBlock(stadium) {
+    const btn     = document.getElementById("showAreaBtn");
+    const caption = document.getElementById("showAreaCaption");
+    const { r, total, supporters } = countShopsNearStadium(stadium);
+    if (total > 0) {
+      btn.disabled = false;
+      caption.textContent = `半径${r}km圏内に ${total}件` +
+        (supporters > 0 ? `（サポーター歓迎店 ${supporters}件）` : "");
+    } else {
+      btn.disabled = true;
+      caption.textContent = `半径${r}km圏内には、掲載しているお店がまだありません。`;
+    }
   }
 
   /* ── verified 判定 ──
@@ -434,6 +769,13 @@ window.initMap = function () {
 
     marker.addListener("click", () => {
       openCard();
+      setTypeBadge(isSupporter ? "supporter" : "general");
+      trackEvent("view_place", {
+        place_type: isSupporter ? "supporter" : "general",
+        place_id:   shop.placeid,
+        place_name: shop.name,
+        entry:      currentEntry()
+      });
       document.getElementById("shopName").innerText = shop.name;
       const teamLine = (isSupporter && shop.team)
         ? `<span class="team-line">推しクラブ: ${shop.team}</span><br>` : "";
@@ -450,7 +792,10 @@ window.initMap = function () {
       if (shop.screen) badges.push(`${iconSvg("tv")} 試合放映あり`);
       const badgeLine = badges.length ? `${badges.join("　")}<br>` : "";
 
-      const noteLine = (isSupporter && shop.note) ? `${shop.note}` : "";
+      // 写真・ひとことの表示対象：サポーター歓迎店、およびsupportLevel=0の一般店舗。
+      // （掲載許可が未回答で一般店舗扱いとなった歓迎店[verified=false]は、従来どおり表示しない）
+      const showRichInfo = isSupporter || shop.supportLevel === 0;
+      const noteLine = (showRichInfo && shop.note) ? `${shop.note}` : "";
       document.getElementById("shopInfo").innerHTML =
         teamLine + flameLine + `ジャンル: ${shop.category || ""}<br>` + badgeLine + noteLine;
 
@@ -458,10 +803,10 @@ window.initMap = function () {
       document.getElementById("shopNotice").style.display = "block";
 
       const gallery = document.getElementById("shopImageGallery");
-      const images = isSupporter ? getShopImages(shop) : [];
+      const images = showRichInfo ? getShopImages(shop) : [];
       if (images.length) {
         gallery.innerHTML = images
-          .map(url => `<img src="${url}" class="shop-image-item" alt="">`)
+          .map(url => `<img src="${url}" class="shop-image-item" alt="${escapeAttr(shop.name)}の写真">`)
           .join("");
         gallery.style.display = "flex";
       } else {
@@ -469,11 +814,13 @@ window.initMap = function () {
         gallery.style.display = "none";
       }
       document.querySelector(".detail-btn").onclick = () => {
+        trackEvent("gmaps_open", { place_type: isSupporter ? "supporter" : "general", place_id: shop.placeid, place_name: shop.name });
         openExternalMapLink(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.name)}&query_place_id=${shop.placeid}`);
       };
 
       currentDestination = {
         type: "shops",
+        kind: isSupporter ? "supporter" : "general", // 計測用の種別（view_place の place_type と同じ値）
         placeid: shop.placeid,
         name: shop.name,
         lat: Number(shop.lat),
@@ -483,8 +830,11 @@ window.initMap = function () {
       setOriginChk.checked = !!(originData && originData.placeid === shop.placeid);
       updateRouteTabState();
       updateSaveBtnDisplay();
-      // ② 店舗カードでは周辺表示ボタンを非表示
-      document.getElementById("showAreaBtn").style.display = "none";
+      // ② 店舗カードでは「周辺のお店を見る」を非表示
+      document.getElementById("showAreaWrap").style.display = "none";
+      // 店舗カードではリンクのコピーを表示し、URLを ?shop=<placeid> に更新
+      document.getElementById("copyLinkBtn").style.display = "flex";
+      syncUrlToShop(shop.placeid);
     });
 
     marker.shopData = shop;
@@ -494,79 +844,59 @@ window.initMap = function () {
 
   /* ── 店舗マーカー再描画 ── */
   function refreshShopMarkers() {
+    updateSupporterCount();
     shopMarkers.forEach(m => m.setMap(null));
     shopMarkers = [];
 
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
 
-    // ① 検索ボックスは shops.category / shops.team も検索対象とする
-    //   （ピンの絞り込みは検索キーワード・タブのみで行う）
+    // ① 検索ボックスは shops.name / shops.category / shops.team / shops.prefecture を検索対象とする
+    //   （ピンの絞り込みは検索キーワード・チップのみで行う）
     allShops.filter(shop => {
       if (!shop.published) return false;
       // verified=falseのサポーター歓迎店は一般店舗と同一の表示条件とする
       if (isEffectiveGeneral(shop) && !showGeneral) return false;
       if (variants.length) {
         return (
+          matchField(shop.name,     variants) ||
           matchField(shop.category, variants) ||
-          matchField(shop.team,     variants)
+          matchField(shop.team,     variants) ||
+          matchPrefecture(shop.prefecture, variants)
         );
       }
       return true;
     }).forEach(shop => createShopMarker(shop));
+
+    updateSearchStatus();
   }
 
-  /* ── スタジアムマーカー再描画 ── */
+  /* ── スタジアムマーカー再描画 ──
+     ※検索ヒット時のズームは fitToSearchResults に集約（店舗ヒットとの同時ヒットを考慮するため） */
   function refreshStadiumMarkers() {
     stadiumMarkers.forEach(m => m.setMap(null));
     stadiumMarkers = [];
 
-    if (!showStadiums) return;
+    if (!showStadiums) { updateSearchStatus(); return; }
 
     const keyword  = searchInput.value.trim();
     const variants = keyword ? normalizeKeyword(keyword) : [];
 
-    if (variants.length) {
-      console.log("[検索]", variants, "/ スタジアム総数:", allStadiums.length);
-    }
-
-    const filtered = allStadiums.filter(s => {
+    allStadiums.filter(s => {
       if (variants.length) {
         const teamsStr = Array.isArray(s.teams) ? s.teams.join(" ") : (s.teams || "");
-        const hit = (
+        return (
           matchField(s.name,       variants) ||
           matchField(s.subname,    variants) ||
-          matchField(s.prefecture, variants) ||
+          matchPrefecture(s.prefecture, variants) ||
           matchField(s.city,       variants) ||
           matchField(teamsStr,     variants)
         );
-        if (hit) console.log("[ヒット]", s.name, s.prefecture, s.teams);
-        return hit;
       }
       return true;
-    });
+    }).forEach(s => createStadiumMarker(s));
 
-    console.log("[filtered]", filtered.length, "件");
-
-    filtered.forEach(s => createStadiumMarker(s));
-
-    // ④ スタジアム優先ズーム：
-    //    キーワードあり かつ スタジアムがヒット の場合にfitBoundsする。
-    //    ただし「出発地に設定したスタジアム自身だけ」がヒットした場合は、
-    //    無駄なカメラ移動を避けるためスキップする
-    //    （出発地がスタジアムというだけで以降の検索が全て無視される
-    //      不具合があったため、判定をplaceid単位に限定した）
-    if (variants.length && stadiumMarkers.length > 0) {
-      const isOnlyOriginStadiumItself =
-        originData &&
-        originData.type === "stadiums" &&
-        filtered.length === 1 &&
-        filtered[0].placeid === originData.placeid;
-
-      if (!isOnlyOriginStadiumItself) {
-        fitToMarkers(stadiumMarkers);
-      }
-    }
+    updateSearchStatus();
   }
 
   function refreshAllMarkers() {
@@ -574,17 +904,102 @@ window.initMap = function () {
     refreshStadiumMarkers();
   }
 
-  /* ── ② 検索後ズーム ── */
+  /* ── 検索結果の件数表示（チップ行の下） ──
+     ・検索中：「○○」の検索結果：店舗 N件・スタジアム M件
+     ・0件　：見つからなかったことと、探し方のヒントを表示
+     ・一般店舗／スタジアムが非表示のときは、検索対象外になっている旨も添える
+     ・データ読み込み前は表示しない（読み込み前に「見つかりません」と出さない）
+     ※検索語は利用者の入力なので textContent で表示する（HTMLとして解釈させない） */
+  function updateSearchStatus() {
+    const el = document.getElementById("searchStatus");
+    if (!el) return;
+    const keyword   = searchInput.value.trim();
+    const dataReady = allShops.length > 0 && allStadiums.length > 0;
+
+    if (!keyword || !dataReady) {
+      el.style.display = "none";
+      el.textContent = "";
+      document.body.classList.remove("is-searching");
+      return;
+    }
+
+    const shopsN    = shopMarkers.length;
+    const stadiumsN = stadiumMarkers.length;
+    const label     = keyword.length > 14 ? keyword.slice(0, 14) + "…" : keyword;
+
+    const main  = document.createElement("div");
+    const notes = [];
+    if (shopsN + stadiumsN === 0) {
+      main.textContent = `「${label}」は見つかりませんでした`;
+      notes.push("店名・地名・クラブ名・ジャンルで探せます。");
+      el.classList.add("is-empty");
+    } else {
+      const parts = [];
+      if (shopsN > 0)    parts.push(`店舗 ${shopsN}件`);
+      if (stadiumsN > 0) parts.push(`スタジアム ${stadiumsN}件`);
+      main.textContent = `「${label}」の検索結果：${parts.join("・")}`;
+      el.classList.remove("is-empty");
+    }
+
+    const hidden = [];
+    if (!showGeneral)  hidden.push("一般店舗");
+    if (!showStadiums) hidden.push("スタジアム");
+    if (hidden.length) notes.push(`${hidden.join("・")}は非表示のため、検索対象外です。`);
+
+    el.textContent = "";
+    el.appendChild(main);
+    notes.forEach(text => {
+      const d = document.createElement("div");
+      d.className = "ss-note";
+      d.textContent = text;
+      el.appendChild(d);
+    });
+    el.style.display = "block";
+    document.body.classList.add("is-searching"); // 検索中は初回バナーを隠す（件数表示と重なるため）
+  }
+
+  /* ── ② 検索後ズーム ──
+     スタジアム・店舗のヒット状況に応じて表示範囲を決める。
+     ・スタジアムのみ：ヒットしたスタジアム全体
+     ・店舗のみ    ：出発地/現在地がある場合は「基準点＋最寄りの1店舗」、なければヒット全店舗
+     ・両方ヒット  ：スタジアム全件＋店舗（基準点がある場合は最寄り1店舗）を含む範囲
+     ・地名ヒット  ：上記より優先し、該当エリア（都道府県・市区町村）の全ピンが収まる範囲
+     これにより店名検索時にスタジアム側へ引っ張られず、全国チェーン店でも広域に飛びにくい。 */
   function fitToSearchResults() {
     const keyword = searchInput.value.trim();
     if (!keyword) return;
 
-    // スタジアムがヒットしている場合はrefreshStadiumMarkers内のfitToMarkersに任せる
-    if (stadiumMarkers.length > 0) return;
+    // 出発地に設定したスタジアム自身だけがヒットした場合は、そのスタジアムへの無駄な移動を避ける
+    const isOnlyOriginStadiumItself =
+      originData &&
+      originData.type === "stadiums" &&
+      stadiumMarkers.length === 1 &&
+      stadiumMarkers[0].stadiumData.placeid === originData.placeid;
 
-    // スタジアム未ヒット・店舗のみの場合：出発地/現在地→最近傍ピンにfit
-    const shopPositions = shopMarkers.map(m => m.getPosition());
-    if (shopPositions.length === 0) return;
+    // 地名（都道府県／スタジアムの市区町村）で検索した場合は、該当エリアの全ピンが収まる範囲に移動する。
+    // 「基準点＋最寄り1件」のロジックのままだと、遠方の地名を検索しても最寄りの1件だけが対象となり、
+    // 遠征先のエリア全体が見えないため。
+    const areaVariants = normalizeKeyword(keyword);
+    const areaPositions = [
+      ...stadiumMarkers
+        .filter(m => matchPrefecture(m.stadiumData.prefecture, areaVariants) || matchField(m.stadiumData.city, areaVariants))
+        .map(m => m.getPosition()),
+      ...shopMarkers
+        .filter(m => matchPrefecture(m.shopData.prefecture, areaVariants))
+        .map(m => m.getPosition())
+    ];
+    const onlyOriginHit = isOnlyOriginStadiumItself && shopMarkers.length === 0;
+    if (areaPositions.length > 0 && !onlyOriginHit) {
+      fitToPositions(areaPositions, 80);
+      return;
+    }
+
+    const stadiumPositions = isOnlyOriginStadiumItself
+      ? []
+      : stadiumMarkers.map(m => m.getPosition());
+    let shopPositions = shopMarkers.map(m => m.getPosition());
+
+    if (stadiumPositions.length === 0 && shopPositions.length === 0) return;
 
     const base = originData
       ? new google.maps.LatLng(originData.lat, originData.lng)
@@ -592,59 +1007,201 @@ window.initMap = function () {
         ? new google.maps.LatLng(userLocation.lat, userLocation.lng)
         : null;
 
-    if (!base) {
-      const bounds = new google.maps.LatLngBounds();
-      shopPositions.forEach(p => bounds.extend(p));
-      map.fitBounds(bounds);
-      google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-        if (map.getZoom() > 14) map.setZoom(14);
+    // 基準点がある場合、店舗は最寄りの1件に絞る
+    if (base && shopPositions.length > 0) {
+      let nearest = null;
+      let minDist = Infinity;
+      shopPositions.forEach(p => {
+        const d = google.maps.geometry
+          ? google.maps.geometry.spherical.computeDistanceBetween(base, p)
+          : Math.hypot(p.lat() - base.lat(), p.lng() - base.lng());
+        if (d < minDist) { minDist = d; nearest = p; }
       });
+      shopPositions = [nearest];
+    }
+
+    const points = [...stadiumPositions, ...shopPositions];
+
+    if (shopPositions.length === 0) {
+      // スタジアムのみ（従来どおり余白なし）
+      fitToPositions(points);
       return;
     }
 
-    let nearest = null;
-    let minDist = Infinity;
-    shopPositions.forEach(p => {
-      const d = google.maps.geometry
-        ? google.maps.geometry.spherical.computeDistanceBetween(base, p)
-        : Math.hypot(p.lat() - base.lat(), p.lng() - base.lng());
-      if (d < minDist) { minDist = d; nearest = p; }
-    });
-
-    const bounds = new google.maps.LatLngBounds();
-    bounds.extend(base);
-    bounds.extend(nearest);
-    map.fitBounds(bounds, { padding: 80 });
-    google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-      if (map.getZoom() > 14) map.setZoom(14);
-    });
+    // 店舗のみで基準点がある場合は、基準点も範囲に含める（従来仕様）
+    if (stadiumPositions.length === 0 && base) points.push(base);
+    fitToPositions(points, 80);
   }
 
-  /* ── タブ：スタジアム ── */
-  const stadiumTab = document.getElementById("stadiumTab");
-  stadiumTab.addEventListener("click", () => {
+  /* ── フィルターチップ（検索バーの下） ──
+     ・サポーター歓迎店：常に表示（切り替え不可）。件数を表示し、タップすると「常に表示」とお知らせする
+     ・一般店舗／スタジアム：タップでON/OFF。状態は塗り・色で示し、aria-pressed にも反映する
+     ・ドットの色は地図ピンの色（歓迎店=青／一般店舗=赤）に合わせ、凡例を兼ねる */
+  const chipSupporter = document.getElementById("chipSupporter");
+  const generalChip   = document.getElementById("chipGeneral");
+  const stadiumChip   = document.getElementById("chipStadium");
+
+  function setChipState(chip, on) {
+    chip.classList.toggle("on", on);
+    chip.classList.toggle("off", !on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  // サポーター歓迎店の件数（公開中で、掲載許可済みの歓迎店）
+  function updateSupporterCount() {
+    const el = document.getElementById("supporterCount");
+    if (!el) return;
+    const n = allShops.filter(s => s.published && !isEffectiveGeneral(s)).length;
+    el.textContent = n > 0 ? String(n) : "";
+  }
+
+  chipSupporter.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "supporter" });
+    showToast("サポーター歓迎店は、常に地図に表示されます。");
+  });
+
+  stadiumChip.addEventListener("click", () => {
     showStadiums = !showStadiums;
-    stadiumTab.style.opacity = showStadiums ? "1" : "0.5";
+    trackEvent("tab_click", { tab: "stadium", on: showStadiums ? 1 : 0 });
+    setChipState(stadiumChip, showStadiums);
     clearSearch();
     refreshStadiumMarkers();
   });
-  stadiumTab.style.opacity = "1";
+  setChipState(stadiumChip, true);
 
-  /* ── タブ：一般店舗 ── */
-  const generalTab = document.getElementById("generalTab");
-  generalTab.addEventListener("click", () => {
+  generalChip.addEventListener("click", () => {
     showGeneral = !showGeneral;
-    generalTab.style.opacity = showGeneral ? "1" : "0.5";
+    trackEvent("tab_click", { tab: "general", on: showGeneral ? 1 : 0 });
+    setChipState(generalChip, showGeneral);
     clearSearch();
     refreshShopMarkers();
   });
-  generalTab.style.opacity = "1";
+  setChipState(generalChip, true);
 
   /* ── タブ：保存 ── */
   const savedTab    = document.getElementById("savedTab");
   const savedScreen = document.getElementById("savedScreen");
   const savedList   = document.getElementById("savedList");
   const closeSavedBtn = document.getElementById("closeSavedBtn");
+
+  /* ── 保存リストの項目から、地図上のピンを開く ──
+     ・ピンの特定は店名ではなく placeid で行う（同名チェーン店の取り違え防止）
+     ・検索キーワードやタブOFFで非表示になっている場合は、表示を戻してから開く */
+  function findMarkerByPlaceId(type, placeid) {
+    return type === "shops"
+      ? shopMarkers.find(m => m.shopData && m.shopData.placeid === placeid)
+      : stadiumMarkers.find(m => m.stadiumData && m.stadiumData.placeid === placeid);
+  }
+
+  function openSavedPlace(type, placeid, entry) {
+    const data = type === "shops"
+      ? allShops.find(s => s.placeid === placeid)
+      : allStadiums.find(s => s.placeid === placeid);
+    if (!data) return;
+
+    if (type === "shops") {
+      map.setCenter({ lat: Number(data.lat), lng: Number(data.lng) });
+      map.setZoom(15);
+    }
+
+    let marker = findMarkerByPlaceId(type, placeid);
+
+    // 検索キーワードで絞り込まれている場合は解除
+    if (!marker && searchInput.value.trim()) {
+      clearSearch();
+      marker = findMarkerByPlaceId(type, placeid);
+    }
+    // タブのOFFで隠れている場合はONに戻す
+    if (!marker) {
+      if (type === "shops" && !showGeneral && isEffectiveGeneral(data)) {
+        showGeneral = true;
+        setChipState(generalChip, true);
+        refreshShopMarkers();
+      } else if (type === "stadiums" && !showStadiums) {
+        showStadiums = true;
+        setChipState(stadiumChip, true);
+        refreshStadiumMarkers();
+      }
+      marker = findMarkerByPlaceId(type, placeid);
+    }
+
+    if (marker) {
+      openMarkerWithEntry(marker, entry || "saved");
+    } else {
+      showToast("この場所は現在表示できません。");
+    }
+  }
+
+  /* ── 店舗への直リンク（?shop=<placeid>）──
+     データ読み込み完了後に一度だけ、該当店舗のカードを開く。
+     見つからない（存在しない・非公開）場合は、お知らせを出してURLを元に戻す。
+     地図の移動・検索やタブで隠れていた場合の復帰は、保存リストと共通の openSavedPlace が担う。 */
+  function openPendingDeepLink() {
+    if (!pendingDeepLinkShopId) return;
+    const id = pendingDeepLinkShopId;
+    pendingDeepLinkShopId = null;
+
+    if (!allShops.some(s => s.placeid === id)) {
+      trackEvent("deeplink_open", { place_id: id, found: 0 });
+      showToast("この店舗は見つかりませんでした。");
+      syncUrlToShop(null);
+      return;
+    }
+
+    openSavedPlace("shops", id, "deeplink");
+    const opened = !!currentDestination && currentDestination.placeid === id;
+    trackEvent("deeplink_open", { place_id: id, found: opened ? 1 : 0 });
+    if (!opened) syncUrlToShop(null); // 非公開などで開けなかった場合
+  }
+
+  /* ── 店舗リンクのコピー ──
+     ・クリップボードAPI → 使えない環境では旧方式 → それも不可なら、手動コピー用に表示 */
+  const copyLinkBtn = document.getElementById("copyLinkBtn");
+  const copyLinkLabel = copyLinkBtn.querySelector("span");
+  const COPY_LABEL_DEFAULT = copyLinkLabel.textContent;
+  let copyLabelTimer = null;
+
+  async function copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* 旧方式にフォールバック */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  copyLinkBtn.addEventListener("click", async () => {
+    if (!currentDestination || currentDestination.type !== "shops") return;
+    const url = buildShopUrl(currentDestination.placeid);
+    trackEvent("copy_link", {
+      place_type: currentDestination.kind,
+      place_id:   currentDestination.placeid,
+      place_name: currentDestination.name
+    });
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      copyLinkLabel.textContent = "コピーしました";
+      clearTimeout(copyLabelTimer);
+      copyLabelTimer = setTimeout(() => { copyLinkLabel.textContent = COPY_LABEL_DEFAULT; }, 2000);
+    } else {
+      window.prompt("リンクをコピーしてください", url);
+    }
+  });
 
   function renderSavedList() {
     const data = loadSavedData();
@@ -690,21 +1247,7 @@ window.initMap = function () {
       // 項目タップ → 地図に戻ってその場所を表示
       row.querySelector(".saved-item-main").addEventListener("click", () => {
         savedScreen.style.display = "none";
-        if (item.type === "shops") {
-          const shop = allShops.find(s => s.placeid === item.placeid);
-          if (shop) {
-            map.setCenter({ lat: Number(shop.lat), lng: Number(shop.lng) });
-            map.setZoom(15);
-            const marker = shopMarkers.find(m => m.getTitle() === shop.name);
-            if (marker) google.maps.event.trigger(marker, "click");
-          }
-        } else {
-          const st = allStadiums.find(s => s.placeid === item.placeid);
-          if (st) {
-            const marker = stadiumMarkers.find(m => m.getTitle() === st.name);
-            if (marker) google.maps.event.trigger(marker, "click");
-          }
-        }
+        openSavedPlace(item.type, item.placeid);
       });
 
       // 削除ボタン
@@ -721,6 +1264,7 @@ window.initMap = function () {
   }
 
   savedTab.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "saved" });
     renderSavedList();
     savedScreen.style.display = "flex";
   });
@@ -794,7 +1338,7 @@ window.initMap = function () {
         listScreen.style.display = "none";
         map.setCenter(item.marker.getPosition());
         map.setZoom(15);
-        google.maps.event.trigger(item.marker, "click");
+        openMarkerWithEntry(item.marker, "list");
       });
 
       listViewList.appendChild(row);
@@ -802,6 +1346,7 @@ window.initMap = function () {
   }
 
   listTab.addEventListener("click", () => {
+    trackEvent("tab_click", { tab: "list" });
     renderListView();
     listScreen.style.display = "flex";
   });
@@ -816,6 +1361,7 @@ window.initMap = function () {
   const closeHelpBtn = document.getElementById("closeHelpBtn");
 
   helpBtn.addEventListener("click", () => {
+    trackEvent("help_open", {});
     helpScreen.style.display = "flex";
   });
 
@@ -823,14 +1369,61 @@ window.initMap = function () {
     helpScreen.style.display = "none";
   });
 
-  /* ── 検索バー入力 ── */
+  /* ── 検索バー入力 ──
+     ・IME変換中（未確定文字）は検索しない
+     ・入力が止まって300ms後に再描画（1文字ごとの地図移動を防ぐ）
+     ・キーワードが空になった場合は即時反映 */
+  let lastTrackedKeyword = "";
+  function runSearch() {
+    searchDebounceTimer = null;
+    refreshAllMarkers();
+    fitToSearchResults(); // ② 検索後ズーム
+
+    // 計測：検索語とヒット件数（0件の頻度や、よく探されている語の把握用）
+    const kw = searchInput.value.trim();
+    if (!kw) {
+      lastTrackedKeyword = "";
+    } else if (kw !== lastTrackedKeyword) {
+      lastTrackedKeyword = kw;
+      trackEvent("search", {
+        search_term:   kw,
+        shop_hits:     shopMarkers.length,
+        stadium_hits:  stadiumMarkers.length
+      });
+    }
+  }
+  function scheduleSearch() {
+    clearTimeout(searchDebounceTimer);
+    if (!searchInput.value.trim()) {
+      runSearch();
+      return;
+    }
+    searchDebounceTimer = setTimeout(runSearch, 300);
+  }
+
+  searchInput.addEventListener("keydown", e => {
+    // IME変換中のEnter（変換の確定）は無視する
+    if (e.key !== "Enter" || e.isComposing || isComposing) return;
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    runSearch();
+    searchInput.blur(); // キーボードを閉じて、検索結果の地図が見えるようにする
+  });
+
+  searchInput.addEventListener("compositionstart", () => {
+    isComposing = true;
+  });
+  searchInput.addEventListener("compositionend", () => {
+    isComposing = false;
+    scheduleSearch();
+  });
   searchInput.addEventListener("input", () => {
     // ② カードを開いた状態から検索を始めた場合はカードを閉じる
     const card = document.getElementById("shopCard");
     if (card.style.display !== "none") closeCard();
     updateClearBtn();
-    refreshAllMarkers();
-    fitToSearchResults(); // ② 検索後ズーム
+    if (isComposing) return;
+    scheduleSearch();
   });
 
   /* ── データ読込（リトライ＋タイムアウト付き） ──
@@ -849,8 +1442,9 @@ window.initMap = function () {
   /* ⑤ 店舗・スタジアム両方の初回読み込みが完了したらローディング画面を隠す */
   function hideLoadingOverlayIfReady() {
     if (lastShopsSnapshotAt > 0 && lastStadiumsSnapshotAt > 0) {
-      const overlay = document.getElementById("loadingOverlay");
-      if (overlay) overlay.classList.add("hide");
+      hideLoadingOverlay();
+      hideToast("load_error"); // 遅れてデータが届いた場合は、読み込み失敗の案内だけを消す
+      openPendingDeepLink();
     }
   }
 
@@ -1141,8 +1735,12 @@ window.initMap = function () {
      一定時間経過後はローディング画面を強制的に閉じる
      （地図・再読み込みボタンに手動でアクセスできるようにするため） */
   setTimeout(() => {
-    const overlay = document.getElementById("loadingOverlay");
-    if (overlay) overlay.classList.add("hide");
+    hideLoadingOverlay();
+    // データが届いていない場合は、空の地図のままにせず案内を出す
+    if (lastShopsSnapshotAt === 0 || lastStadiumsSnapshotAt === 0) {
+      showToast("店舗データを読み込めませんでした。右下の再読み込みボタンをお試しください。", 8000, "load_error");
+      trackEvent("load_error", { reason: "data_timeout" });
+    }
   }, 12000);
 
   /* ── ブラウザのオートフィル対応：ページ読込時にクリアボタン表示を更新 ── */
