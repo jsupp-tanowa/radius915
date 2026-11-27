@@ -417,6 +417,7 @@ html.is-standalone .tab-bar::after {
   padding-bottom: 20px;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 /* ホーム画面起動（スタンドアロン）時のみ：
